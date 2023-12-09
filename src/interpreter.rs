@@ -1,18 +1,20 @@
 //! The basic elisp interpreter.
-use crate::core::{
+use crate::init::defun;
+use rune_core::{
     cons::{Cons, ElemStreamIter},
     env::{sym, Env, Symbol},
     error::{ArgError, ErrorType, EvalError, EvalResult, Type, TypeError},
     gc::{Context, Rt},
+    macros::{bail_err, cons, error, rebind, root, rooted_iter},
     object::{nil, qtrue, Function, Gc, GcObj, List, Object},
 };
-use crate::{root, rooted_iter};
+use rune_macros::defun;
+
 use anyhow::Context as _;
 use anyhow::Result as AnyResult;
 use anyhow::{anyhow, bail, ensure};
 use fallible_iterator::FallibleIterator;
 use fallible_streaming_iterator::FallibleStreamingIterator;
-use rune_macros::defun;
 
 struct Interpreter<'brw> {
     vars: &'brw mut Rt<Vec<&'static Cons>>,
@@ -66,7 +68,7 @@ impl Interpreter<'_> {
                 sym::PROG1 => self.eval_progx(forms, 1, cx),
                 sym::PROG2 => self.eval_progx(forms, 2, cx),
                 sym::SETQ => self.setq(forms, cx),
-                sym::DEFVAR | sym::DEFCONST => self.defvar(forms, cx),
+                defun::DEFVAR | sym::DEFCONST => self.defvar(forms, cx),
                 sym::FUNCTION => self.eval_function(forms, cx),
                 sym::INTERACTIVE => Ok(nil()), // TODO: implement
                 sym::CATCH => self.catch(forms, cx),
@@ -153,7 +155,7 @@ impl Interpreter<'_> {
         root!(func, cx);
 
         match func.get(cx) {
-            Function::Cons(cons) if cons.car() == sym::AUTOLOAD => {
+            Function::Cons(cons) if cons.car() == defun::AUTOLOAD => {
                 crate::eval::autoload_do_load(func.use_as(), None, None, self.env, cx)
                     .map_err(|e| add_trace(e, "autoload", &[]))?;
                 func.set(sym.bind(cx).follow_indirect(cx).unwrap());
@@ -639,8 +641,35 @@ impl Interpreter<'_> {
     }
 }
 
-impl Rt<Gc<Function<'_>>> {
-    pub(crate) fn call<'ob>(
+/// Represents the call action on the different types of Elisp
+/// functions.
+///
+/// # Examples
+///
+/// - [Function::ByteFn](`rune_core::object::Function::ByteFn`): We'll defer the implementation to the bytecode module.
+/// - [Function::Cons](`rune_core::object::Function::Cons`), [Function::Symbol](`rune_core::object::Function::Symbol`):
+/// In Elisp, they would represent something like:
+///
+/// ```elisp
+/// `(let* ((var ,(lambda () "test")))
+///   (message var))
+///
+/// ; test
+/// ```
+///
+/// There, we need to run the lambda function before continuing with the `let*` expression.
+pub trait CallFunction {
+    fn call<'ob>(
+        &self,
+        args: &mut Rt<Vec<GcObj<'static>>>,
+        name: Option<&str>,
+        env: &mut Rt<Env>,
+        cx: &'ob mut Context,
+    ) -> EvalResult<'ob>;
+}
+
+impl CallFunction for Rt<Gc<Function<'_>>> {
+    fn call<'ob>(
         &self,
         args: &mut Rt<Vec<GcObj<'static>>>,
         name: Option<&str>,
@@ -668,7 +697,7 @@ impl Rt<Gc<Function<'_>>> {
             Function::Symbol(sym) => {
                 let Some(func) = sym.follow_indirect(cx) else { bail_err!("Void Function: {sym}") };
                 match func.untag() {
-                    Function::Cons(cons) if cons.car() == sym::AUTOLOAD => {
+                    Function::Cons(cons) if cons.car() == defun::AUTOLOAD => {
                         // TODO: inifinite loop if autoload does not resolve
                         root!(sym, cx);
                         crate::eval::autoload_do_load(self.use_as(), None, None, env, cx)
@@ -827,7 +856,9 @@ pub(crate) fn parse_arg_list(
 
 #[cfg(test)]
 mod test {
-    use crate::core::{env::intern, gc::RootSet, object::IntoObject};
+    use crate::init::intern;
+    use rune_core::macros::list;
+    use rune_core::{gc::RootSet, object::IntoObject};
 
     use super::*;
 

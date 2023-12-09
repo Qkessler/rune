@@ -3,9 +3,9 @@ use super::super::{
     object::{GcObj, RawObj},
 };
 use super::{Block, Context, RootSet, Trace};
-use crate::core::env::Symbol;
-use crate::core::object::{Gc, IntoObject, LispString, Object, Untag, WithLifetime};
+use crate::env::Symbol;
 use crate::hashmap::{HashMap, HashSet};
+use crate::object::{Gc, IntoObject, LispString, Object, Untag, WithLifetime};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::SliceIndex;
 use std::{
@@ -22,7 +22,7 @@ use std::{
 /// types (like automatically unwraping other rooted objects). This trait is
 /// only safe to implement for types that can be traced by the garbage
 /// collector.
-pub(crate) trait IntoRoot<T> {
+pub trait IntoRoot<T> {
     unsafe fn into_root(self) -> T;
 }
 
@@ -66,7 +66,7 @@ impl<T> Trace for Gc<T> {
 // Represents an object T rooted on the Stack. This will remove the the object
 // from the root set when dropped.
 #[doc(hidden)]
-pub(crate) struct __StackRoot<'rt, T> {
+pub struct __StackRoot<'rt, T> {
     data: &'rt mut Rt<T>,
     root_set: &'rt RootSet,
 }
@@ -95,7 +95,7 @@ impl<T: Display> Display for __StackRoot<'_, T> {
 // That could result in calling `mem::forget` on the root, which would
 // invalidate the stack property of the root set.
 impl<'rt, T: Trace + 'static> __StackRoot<'rt, T> {
-    pub(crate) unsafe fn new(data: &'rt mut T, root_set: &'rt RootSet) -> __StackRoot<'rt, T> {
+    pub unsafe fn new(data: &'rt mut T, root_set: &'rt RootSet) -> __StackRoot<'rt, T> {
         let dyn_ptr = data as &mut dyn Trace as *mut dyn Trace;
         // TODO: See if there is a safer way to do this. We are relying on the
         // layout of `dyn Trace`, which is not guaranteed.
@@ -110,24 +110,6 @@ impl<T> Drop for __StackRoot<'_, T> {
     fn drop(&mut self) {
         self.root_set.roots.borrow_mut().pop();
     }
-}
-
-/// Creates a new root that will be traced during garbage collection. The value
-/// returned by this macro is no longer bound to the `Context` and so can be
-/// used outside of the `Context`'s lifetime. The root is tied to the stack, and
-/// will be unrooted when it goes out of scope.
-#[macro_export]
-macro_rules! root {
-    ($ident:ident, $cx:ident) => {
-        $crate::root!($ident, unsafe { $crate::core::gc::IntoRoot::into_root($ident) }, $cx);
-    };
-    // When using this form, `value` should be an intializer that does not need `IntoRoot`
-    ($ident:ident, $value:expr, $cx:ident) => {
-        let mut rooted = $value;
-        let mut root =
-            unsafe { $crate::core::gc::__StackRoot::new(&mut rooted, $cx.get_root_set()) };
-        let $ident = root.as_mut();
-    };
 }
 
 /// Trait created to overpass the orphan rule when deriving the
@@ -265,7 +247,7 @@ where
 }
 
 impl<T> Rt<T> {
-    pub(crate) fn bind<'ob>(&self, _: &'ob Context) -> <T as WithLifetime<'ob>>::Out
+    pub fn bind<'ob>(&self, _: &'ob Context) -> <T as WithLifetime<'ob>>::Out
     where
         T: WithLifetime<'ob> + Copy,
     {
@@ -273,14 +255,14 @@ impl<T> Rt<T> {
         unsafe { self.inner.with_lifetime() }
     }
 
-    pub(crate) unsafe fn bind_unchecked<'ob>(&'ob self) -> <T as WithLifetime<'ob>>::Out
+    pub unsafe fn bind_unchecked<'ob>(&'ob self) -> <T as WithLifetime<'ob>>::Out
     where
         T: WithLifetime<'ob> + Copy,
     {
         self.inner.with_lifetime()
     }
 
-    pub(crate) fn bind_ref<'a, 'ob>(&'a self, _: &'ob Context) -> &'a <T as WithLifetime<'ob>>::Out
+    pub fn bind_ref<'a, 'ob>(&'a self, _: &'ob Context) -> &'a <T as WithLifetime<'ob>>::Out
     where
         T: WithLifetime<'ob>,
     {
@@ -291,10 +273,7 @@ impl<T> Rt<T> {
         }
     }
 
-    pub(crate) fn bind_mut<'a, 'ob>(
-        &'a mut self,
-        _: &'ob Context,
-    ) -> &'a mut <T as WithLifetime<'ob>>::Out
+    pub fn bind_mut<'a, 'ob>(&'a mut self, _: &'ob Context) -> &'a mut <T as WithLifetime<'ob>>::Out
     where
         T: WithLifetime<'ob>,
     {
@@ -305,7 +284,7 @@ impl<T> Rt<T> {
         }
     }
 
-    pub(crate) fn bind_slice<'ob, U>(slice: &[Rt<T>], _: &'ob Context) -> &'ob [U]
+    pub fn bind_slice<'ob, U>(slice: &[Rt<T>], _: &'ob Context) -> &'ob [U]
     where
         T: WithLifetime<'ob, Out = U>,
     {
@@ -323,7 +302,7 @@ impl TryFrom<&Rt<GcObj<'_>>> for usize {
 
 impl<T> Rt<Gc<T>> {
     /// Like `try_into`, but needed to due no specialization
-    pub(crate) fn try_into<U, E>(&self) -> Result<&Rt<Gc<U>>, E>
+    pub fn try_into<U, E>(&self) -> Result<&Rt<Gc<U>>, E>
     where
         Gc<T>: TryInto<Gc<U>, Error = E> + Copy,
     {
@@ -333,7 +312,7 @@ impl<T> Rt<Gc<T>> {
     }
 
     /// Like `try_into().bind(cx)`, but needed to due no specialization
-    pub(crate) fn bind_as<'ob, U, E>(&self, _cx: &'ob Context) -> Result<U, E>
+    pub fn bind_as<'ob, U, E>(&self, _cx: &'ob Context) -> Result<U, E>
     where
         Gc<T>: WithLifetime<'ob> + Copy,
         <Gc<T> as WithLifetime<'ob>>::Out: TryInto<U, Error = E> + Copy,
@@ -342,7 +321,7 @@ impl<T> Rt<Gc<T>> {
     }
 
     /// Like `From`, but needed to due no specialization
-    pub(crate) fn use_as<U>(&self) -> &Rt<Gc<U>>
+    pub fn use_as<U>(&self) -> &Rt<Gc<U>>
     where
         Gc<T>: Into<Gc<U>> + Copy,
     {
@@ -352,16 +331,16 @@ impl<T> Rt<Gc<T>> {
 
     // TODO: Find a way to remove this method. We should never need to guess
     // if something is cons
-    pub(crate) fn as_cons(&self) -> &Rt<Gc<&Cons>> {
+    pub fn as_cons(&self) -> &Rt<Gc<&Cons>> {
         match self.inner.as_obj().untag() {
-            crate::core::object::Object::Cons(_) => unsafe {
+            crate::object::Object::Cons(_) => unsafe {
                 &*(self as *const Self).cast::<Rt<Gc<&Cons>>>()
             },
             x => panic!("attempt to convert type that was not cons: {x}"),
         }
     }
 
-    pub(crate) fn get<'ob, U>(&self, cx: &'ob Context) -> U
+    pub fn get<'ob, U>(&self, cx: &'ob Context) -> U
     where
         Gc<T>: WithLifetime<'ob, Out = Gc<U>> + Copy,
         Gc<U>: Untag<U>,
@@ -370,7 +349,7 @@ impl<T> Rt<Gc<T>> {
         gc.untag_erased()
     }
 
-    pub(crate) fn set<U>(&mut self, item: U)
+    pub fn set<U>(&mut self, item: U)
     where
         U: IntoRoot<Gc<T>>,
     {
@@ -387,7 +366,7 @@ impl From<&Rt<GcObj<'_>>> for Option<()> {
 }
 
 impl Rt<GcObj<'static>> {
-    pub(crate) fn try_as_option<T, E>(&self) -> Result<Option<&Rt<Gc<T>>>, E>
+    pub fn try_as_option<T, E>(&self) -> Result<Option<&Rt<Gc<T>>>, E>
     where
         GcObj<'static>: TryInto<Gc<T>, Error = E>,
     {
@@ -417,15 +396,15 @@ impl IntoObject for &mut Rt<GcObj<'static>> {
 }
 
 impl Rt<&Cons> {
-    pub(crate) fn set(&mut self, item: &Cons) {
+    pub fn set(&mut self, item: &Cons) {
         self.inner = unsafe { std::mem::transmute(item) }
     }
 
-    pub(crate) fn car<'ob>(&self, cx: &'ob Context) -> GcObj<'ob> {
+    pub fn car<'ob>(&self, cx: &'ob Context) -> GcObj<'ob> {
         self.bind(cx).car()
     }
 
-    pub(crate) fn cdr<'ob>(&self, cx: &'ob Context) -> GcObj<'ob> {
+    pub fn cdr<'ob>(&self, cx: &'ob Context) -> GcObj<'ob> {
         self.bind(cx).cdr()
     }
 }
@@ -455,7 +434,7 @@ impl<T> Deref for Rt<Option<T>> {
 }
 
 impl<T> Rt<Option<T>> {
-    pub(crate) fn set<U: IntoRoot<T>>(&mut self, obj: U) {
+    pub fn set<U: IntoRoot<T>>(&mut self, obj: U) {
         unsafe {
             self.inner = Some(obj.into_root());
         }
@@ -463,37 +442,37 @@ impl<T> Rt<Option<T>> {
 
     // This is not really dead code, but the static analysis fails to find it
     #[allow(dead_code)]
-    pub(crate) fn as_ref(&self) -> Option<&Rt<T>> {
+    pub fn as_ref(&self) -> Option<&Rt<T>> {
         let option = self.inner.as_ref();
         option.map(|x| unsafe { &*(x as *const T).cast::<Rt<T>>() })
     }
 }
 
 impl<T> Rt<Vec<T>> {
-    // This is not safe to expose pub(crate) because you could call pop and get
+    // This is not safe to expose pub because you could call pop and get
     // an owned Rt
     fn as_mut_ref(&mut self) -> &mut Vec<Rt<T>> {
         // SAFETY: `Rt<T>` has the same memory layout as `T`.
         unsafe { &mut *(self as *mut Self).cast::<Vec<Rt<T>>>() }
     }
 
-    pub(crate) fn push<U: IntoRoot<T>>(&mut self, item: U) {
+    pub fn push<U: IntoRoot<T>>(&mut self, item: U) {
         self.inner.push(unsafe { item.into_root() });
     }
 
-    pub(crate) fn truncate(&mut self, len: usize) {
+    pub fn truncate(&mut self, len: usize) {
         self.as_mut_ref().truncate(len);
     }
 
-    pub(crate) fn pop(&mut self) {
+    pub fn pop(&mut self) {
         self.as_mut_ref().pop();
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.as_mut_ref().clear();
     }
 
-    pub(crate) fn swap_remove(&mut self, index: usize) {
+    pub fn swap_remove(&mut self, index: usize) {
         self.as_mut_ref().swap_remove(index);
     }
 }
@@ -532,23 +511,23 @@ impl<K, V> Rt<HashMap<K, V>>
 where
     K: Eq + Hash,
 {
-    pub(crate) fn insert<Kx: IntoRoot<K>, Vx: IntoRoot<V>>(&mut self, k: Kx, v: Vx) {
+    pub fn insert<Kx: IntoRoot<K>, Vx: IntoRoot<V>>(&mut self, k: Kx, v: Vx) {
         self.inner.insert(unsafe { k.into_root() }, unsafe { v.into_root() });
     }
 
-    pub(crate) fn get<Q: IntoRoot<K>>(&self, k: Q) -> Option<&Rt<V>> {
+    pub fn get<Q: IntoRoot<K>>(&self, k: Q) -> Option<&Rt<V>> {
         self.inner
             .get(unsafe { &k.into_root() })
             .map(|x| unsafe { &*(x as *const V).cast::<Rt<V>>() })
     }
 
-    pub(crate) fn get_mut<Q: IntoRoot<K>>(&mut self, k: Q) -> Option<&mut Rt<V>> {
+    pub fn get_mut<Q: IntoRoot<K>>(&mut self, k: Q) -> Option<&mut Rt<V>> {
         self.inner
             .get_mut(unsafe { &k.into_root() })
             .map(|x| unsafe { &mut *(x as *mut V).cast::<Rt<V>>() })
     }
 
-    pub(crate) fn remove<Q: IntoRoot<K>>(&mut self, k: Q) {
+    pub fn remove<Q: IntoRoot<K>>(&mut self, k: Q) {
         self.inner.remove(unsafe { &k.into_root() });
     }
 }
@@ -571,7 +550,8 @@ impl<T> Deref for Rt<HashSet<T>> {
 
 #[cfg(test)]
 mod test {
-    use crate::core::object::nil;
+    use crate::macros::root;
+    use crate::object::nil;
 
     use super::super::RootSet;
     use super::*;

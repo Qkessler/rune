@@ -1,11 +1,9 @@
 //! Multi-threaded elisp support.
-use crate::{
-    core::{
-        env::Env,
-        gc::{Block, Context, RootSet},
-        object::{CloneIn, GcObj},
-    },
-    root,
+use rune_core::{
+    env::Env,
+    gc::{Block, Context, RootSet},
+    macros::root,
+    object::{CloneIn, GcObj},
 };
 use rune_macros::defun;
 use std::thread::{self, JoinHandle};

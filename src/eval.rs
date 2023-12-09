@@ -1,19 +1,22 @@
 //! Lisp evaluation primitives.
-use crate::core::cons::Cons;
-use crate::core::env::{sym, Env, Symbol};
-use crate::core::error::{EvalError, Type, TypeError};
-use crate::core::gc::Rt;
-use crate::core::object::{nil, FnArgs, LispString, Object};
-use crate::core::{
-    gc::{Context, IntoRoot},
-    object::{Function, Gc, GcObj},
-};
 use crate::fns::{assq, eq};
-use crate::{root, rooted_iter};
+use crate::init::defun;
 use anyhow::{anyhow, bail, ensure, Result};
 use fallible_iterator::FallibleIterator;
 use fallible_streaming_iterator::FallibleStreamingIterator;
+use rune_core::cons::Cons;
+use rune_core::env::{sym, Env, Symbol};
+use rune_core::error::{EvalError, Type, TypeError};
+use rune_core::gc::{Block, Rt};
+use rune_core::macros::{list, root, rooted_iter};
+use rune_core::object::{nil, FnArgs, IntoObject, LispString, Object};
+use rune_core::{
+    gc::{Context, IntoRoot},
+    object::{Function, Gc, GcObj},
+};
 use rune_macros::defun;
+
+use crate::interpreter::CallFunction;
 
 #[defun]
 pub(crate) fn apply<'ob>(
@@ -133,7 +136,7 @@ pub(crate) fn autoload_do_load<'ob>(
 ) -> Result<GcObj<'ob>> {
     // TODO: want to handle the case where the file is already loaded.
     match fundef.get(cx) {
-        Object::Cons(cons) if cons.car() == sym::AUTOLOAD => {
+        Object::Cons(cons) if cons.car() == defun::AUTOLOAD => {
             ensure!(macro_only.is_none(), "autoload-do-load macro-only is not yet implemented");
             let mut iter = cons.elements();
             iter.next(); // autoload
@@ -171,7 +174,7 @@ fn autoload<'ob>(
     if function.has_func() {
         Ok(sym::NIL)
     } else {
-        let autoload = list![sym::AUTOLOAD, file, docstring, interactive, load_type; cx];
+        let autoload = list![defun::AUTOLOAD, file, docstring, interactive, load_type; cx];
         crate::data::fset(function, autoload)
     }
 }
@@ -258,8 +261,8 @@ fn func_arity<'ob>(function: Gc<Function>, cx: &'ob Context) -> Result<&'ob Cons
     }
 }
 
-#[defun]
 #[allow(non_snake_case)]
+#[defun]
 fn internal__define_uninitialized_variable<'ob>(
     _symbol: Symbol<'ob>,
     _doc: Option<GcObj>,
@@ -302,39 +305,16 @@ fn set_default<'ob>(
     Ok(value)
 }
 
-defsym!(FUNCTION);
-defsym!(QUOTE);
-defsym!(MACRO);
-defsym!(UNQUOTE, ",");
-defsym!(SPLICE, ",@");
-defsym!(BACKQUOTE, "`");
-defsym!(AND_OPTIONAL, "&optional");
-defsym!(AND_REST, "&rest");
-defsym!(LAMBDA);
-defsym!(CLOSURE);
-defsym!(CONDITION_CASE);
-defsym!(UNWIND_PROTECT);
-defsym!(SAVE_EXCURSION);
-defsym!(SAVE_CURRENT_BUFFER);
-defsym!(WHILE);
-defsym!(INLINE);
-defsym!(PROGN);
-defsym!(PROG1);
-defsym!(PROG2);
-defsym!(SETQ);
-defsym!(DEFCONST);
-defsym!(COND);
-defsym!(LET);
-defsym!(LET_STAR, "let*");
-defsym!(IF);
-defsym!(AND);
-defsym!(OR);
-defsym!(INTERACTIVE);
-defsym!(CATCH);
-defsym!(THROW);
-defsym!(ERROR);
-defsym!(DEBUG);
-defsym!(VOID_VARIABLE);
+struct Bool(bool);
 
-defvar!(DEBUG_ON_ERROR, false);
-defvar!(INTERNAL_MAKE_INTERPRETED_CLOSURE_FUNCTION);
+impl IntoObject for Bool {
+    type Out<'a> = Symbol<'a>;
+
+    fn into_obj<const C: bool>(self, _: &Block<C>) -> Gc<Self::Out<'_>> {
+        let sym = match self.0 {
+            true => sym::TRUE.into(),
+            false => sym::NIL.into(),
+        };
+        unsafe { Self::Out::tag_ptr(sym.get_ptr()) }
+    }
+}

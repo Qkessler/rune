@@ -1,20 +1,19 @@
 use super::{CloneIn, Gc, GcObj, IntoObject, ObjCell};
-use crate::core::gc::{GcManaged, GcMark, Trace};
+use crate::gc::{GcManaged, GcMark, Trace};
 use crate::hashmap::{HashSet, IndexMap};
 use std::cell::{BorrowMutError, Ref, RefCell, RefMut};
 use std::fmt::{self, Debug, Display, Write};
 
-pub(crate) type HashTable<'ob> = IndexMap<GcObj<'ob>, GcObj<'ob>>;
-// pub(crate) type HashTableView<'ob, T> = IndexMap<GcObj<'ob>, T>;
+pub type HashTable<'ob> = IndexMap<GcObj<'ob>, GcObj<'ob>>;
 
 #[derive(PartialEq, Eq)]
-pub(crate) struct HashTableView<'ob, T> {
-    pub(crate) iter_next: usize,
+pub struct HashTableView<'ob, T> {
+    pub iter_next: usize,
     inner: IndexMap<GcObj<'ob>, T>,
 }
 
 #[derive(Eq)]
-pub(crate) struct LispHashTable {
+pub struct LispHashTable {
     gc: GcMark,
     is_const: bool,
     inner: RefCell<HashTableView<'static, ObjCell>>,
@@ -43,7 +42,7 @@ impl PartialEq for LispHashTable {
 impl LispHashTable {
     // SAFETY: Since this type does not have an object lifetime, it is only safe
     // to create an owned version in context of the allocator.
-    pub(in crate::core) unsafe fn new(vec: HashTable) -> Self {
+    pub unsafe fn new(vec: HashTable) -> Self {
         let cell =
             std::mem::transmute::<IndexMap<GcObj, GcObj>, IndexMap<GcObj<'static>, ObjCell>>(vec);
         Self {
@@ -53,13 +52,13 @@ impl LispHashTable {
         }
     }
 
-    pub(in crate::core) fn make_const(&mut self) {
+    pub fn make_const(&mut self) {
         self.is_const = true;
         // Leak the borrow so that is cannot be borrowed mutabley
         std::mem::forget(self.inner.borrow());
     }
 
-    pub(crate) fn borrow<'a>(&'a self) -> Ref<'a, HashTableView<'a, ObjCell>> {
+    pub fn borrow<'a>(&'a self) -> Ref<'a, HashTableView<'a, ObjCell>> {
         unsafe {
             std::mem::transmute::<
                 Ref<'a, HashTableView<'static, _>>,
@@ -68,7 +67,7 @@ impl LispHashTable {
         }
     }
 
-    pub(crate) fn try_borrow_mut(
+    pub fn try_borrow_mut(
         &self,
     ) -> Result<RefMut<'_, HashTableView<'_, GcObj<'_>>>, BorrowMutError> {
         unsafe {
@@ -83,7 +82,7 @@ impl LispHashTable {
 }
 
 impl<'new> CloneIn<'new, &'new Self> for LispHashTable {
-    fn clone_in<const C: bool>(&self, bk: &'new crate::core::gc::Block<C>) -> Gc<&'new Self> {
+    fn clone_in<const C: bool>(&self, bk: &'new crate::gc::Block<C>) -> Gc<&'new Self> {
         let mut table = HashTable::default();
         let borrow = self.borrow();
         for (key, value) in &borrow.inner {

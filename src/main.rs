@@ -9,8 +9,6 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[macro_use]
 mod macros;
 #[macro_use]
-mod core;
-#[macro_use]
 mod debug;
 mod alloc;
 mod arith;
@@ -26,7 +24,7 @@ mod fileio;
 mod floatfns;
 mod fns;
 mod gui;
-mod hashmap;
+mod init;
 mod interpreter;
 mod keymap;
 mod lread;
@@ -36,10 +34,12 @@ mod search;
 mod threads;
 mod timefns;
 
-use crate::core::{
-    env::{intern, sym, Env},
+use init::defun;
+use rune_core::{
+    env::Env,
     error::EvalError,
     gc::{Context, RootSet, Rt},
+    macros::root,
     object::{nil, Gc, LispString},
 };
 use std::io::{self, Write};
@@ -51,9 +51,9 @@ fn main() {
 
     let args = Args::parse();
 
-    sym::init_symbols();
-    crate::core::env::init_variables(cx, env);
-    crate::data::defalias(intern("not", cx), (sym::NULL).into(), None)
+    defun::init_defun();
+    rune_core::env::init_variables(cx, env);
+    crate::data::defalias(init::intern("not", cx), (defun::NULL).into(), None)
         .expect("null should be defined");
 
     if args.load {

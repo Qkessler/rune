@@ -8,7 +8,8 @@ use super::{
 };
 use super::{Gc, Object};
 use super::{GcObj, LispFloat};
-use crate::core::env::Symbol;
+use crate::env::Symbol;
+use crate::macros::define_unbox;
 use anyhow::Context;
 
 impl<'ob> TryFrom<GcObj<'ob>> for &'ob str {
@@ -89,7 +90,7 @@ impl<'ob> TryFrom<GcObj<'ob>> for Option<()> {
 /// without the need to allocate a new slice. We ensure that the two
 /// types have the exact same representation, so that no writes
 /// actually need to be performed.
-pub(crate) fn try_from_slice<'brw, 'ob, T, E>(slice: &'brw [GcObj<'ob>]) -> Result<&'brw [Gc<T>], E>
+pub fn try_from_slice<'brw, 'ob, T, E>(slice: &'brw [GcObj<'ob>]) -> Result<&'brw [Gc<T>], E>
 where
     Gc<T>: TryFrom<GcObj<'ob>, Error = E> + 'ob,
 {
@@ -132,7 +133,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::core::cons::Cons;
+    use crate::cons::Cons;
 
     use super::super::super::gc::{Context, RootSet};
 

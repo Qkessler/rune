@@ -1,6 +1,6 @@
 use super::{CloneIn, Gc, GcObj, IntoObject, MutObjCell, ObjCell};
 use crate::{
-    core::gc::{Block, GcManaged, GcMark, Trace},
+    gc::{Block, GcManaged, GcMark, Trace},
     hashmap::HashSet,
 };
 use anyhow::{anyhow, Result};
@@ -16,7 +16,7 @@ use std::{
 /// default. However with the [`LispVec::try_mut`] method, you can obtain a mutable view
 /// into this slice.
 #[derive(Eq)]
-pub(crate) struct LispVec {
+pub struct LispVec {
     gc: GcMark,
     is_const: bool,
     inner: Box<[ObjCell]>,
@@ -33,16 +33,16 @@ impl PartialEq for LispVec {
 impl LispVec {
     // SAFETY: Since this type does not have an object lifetime, it is only safe
     // to use in context of the allocator.
-    pub(in crate::core) unsafe fn new(vec: Vec<GcObj>) -> Self {
+    pub unsafe fn new(vec: Vec<GcObj>) -> Self {
         let cell = mem::transmute::<Vec<GcObj>, Vec<ObjCell>>(vec);
         Self { gc: GcMark::default(), is_const: false, inner: cell.into_boxed_slice() }
     }
 
-    pub(in crate::core) fn make_const(&mut self) {
+    pub fn make_const(&mut self) {
         self.is_const = true;
     }
 
-    pub(crate) fn try_mut(&self) -> Result<&[MutObjCell]> {
+    pub fn try_mut(&self) -> Result<&[MutObjCell]> {
         if self.is_const {
             Err(anyhow!("Attempt to mutate constant Vector"))
         } else {
@@ -51,7 +51,7 @@ impl LispVec {
         }
     }
 
-    pub(crate) fn to_vec(&self) -> Vec<GcObj> {
+    pub fn to_vec(&self) -> Vec<GcObj> {
         // SAFETY: ObjCell and GcObj have the same representation.
         let obj_slice = unsafe { &*(addr_of!(*self.inner) as *const [GcObj]) };
         obj_slice.to_vec()
@@ -123,11 +123,11 @@ impl LispVec {
 }
 
 #[repr(transparent)]
-pub(crate) struct RecordBuilder<'ob>(pub(crate) Vec<GcObj<'ob>>);
+pub struct RecordBuilder<'ob>(pub Vec<GcObj<'ob>>);
 
 #[derive(Debug, PartialEq, Eq)]
 #[repr(transparent)]
-pub(crate) struct Record(LispVec);
+pub struct Record(LispVec);
 
 impl Deref for Record {
     type Target = LispVec;

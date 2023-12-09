@@ -1,12 +1,16 @@
 //! The main bytecode interpeter.
-use crate::core::env::{sym, Env, Symbol};
-use crate::core::error::{ErrorType, EvalError, EvalResult};
-use crate::core::gc::{Context, Rt};
-use crate::core::object::{nil, ByteFn, Gc, GcObj, LispString, LispVec, Object, WithLifetime};
-use crate::root;
 use anyhow::{bail, Result};
 use bstr::ByteSlice;
+use rune_core::env::{sym, Env, Symbol};
+use rune_core::error::{ErrorType, EvalError, EvalResult};
+use rune_core::gc::{Context, Rt};
+use rune_core::macros::{bail_err, cons, rebind, root};
+use rune_core::object::{
+    nil, ByteFn, Gc, GcObj, LispStack, LispString, LispVec, Object, WithLifetime,
+};
 use rune_macros::{defun, Trace};
+
+use crate::interpreter::CallFunction;
 
 mod opcode;
 
@@ -71,7 +75,7 @@ impl ProgramCounter {
 #[derive(Clone)]
 struct CallFrame<'brw> {
     pc: ProgramCounter,
-    consts: &'brw Rt<&'static LispVec>,
+    pub consts: &'brw Rt<&'static LispVec>,
     /// The index where this call frame starts on the stack. The interpreter
     /// should not access elements beyond this index.
     start: usize,
@@ -869,9 +873,11 @@ pub(crate) fn call<'ob>(
 #[allow(clippy::enum_glob_use)]
 #[cfg(test)]
 mod test {
-    use crate::core::{
+    use crate::defun;
+    use rune_core::{
         env::sym,
         gc::RootSet,
+        macros::{list, root},
         object::{HashTable, IntoObject, LispVec},
     };
 
@@ -989,25 +995,26 @@ mod test {
         use OpCode::*;
         let roots = &RootSet::default();
         let cx = &mut Context::new(roots);
-        sym::init_symbols();
+        defun::init_defun();
+
         // (lambda (x) (symbol-name x))
         make_bytecode!(
             bytecode,
             257,
             [Constant0, StackRef1, Call1, Return],
-            [sym::SYMBOL_NAME],
+            [defun::SYMBOL_NAME],
             cx
         );
-        check_bytecode!(bytecode, [sym::SYMBOL_NAME], "symbol-name", cx);
-        check_bytecode!(bytecode, [sym::AREF], "aref", cx);
-        check_bytecode!(bytecode, [sym::ADD], "+", cx);
+        check_bytecode!(bytecode, [defun::SYMBOL_NAME], "symbol-name", cx);
+        check_bytecode!(bytecode, [defun::AREF], "aref", cx);
+        check_bytecode!(bytecode, [defun::ADD], "+", cx);
 
         // (lambda (x y z) (+ x y z))
         make_bytecode!(
             bytecode,
             771,
             [Constant0, StackRef3, StackRef3, StackRef3, Call3, Return],
-            [sym::ADD],
+            [defun::ADD],
             cx
         );
         check_bytecode!(bytecode, [1, 2, 3], 6, cx);
@@ -1017,7 +1024,7 @@ mod test {
             bytecode,
             128,
             [Constant0, Constant1, StackRef2, Call2, Return],
-            [sym::APPLY, sym::ADD],
+            [defun::APPLY, defun::ADD],
             cx
         );
         check_bytecode!(bytecode, [1, 2, 3], 6, cx);
@@ -1032,7 +1039,7 @@ mod test {
         use OpCode::*;
         let roots = &RootSet::default();
         let cx = &mut Context::new(roots);
-        sym::init_symbols();
+        defun::init_defun();
 
         // (lambda () (let ((load-path 5)) load-path))
         make_bytecode!(
@@ -1118,7 +1125,7 @@ mod test {
 
         let roots = &RootSet::default();
         let cx = &mut Context::new(roots);
-        sym::init_symbols();
+        defun::init_defun();
         let err = cons!(sym::ERROR; cx);
 
         // (lambda (y) (condition-case nil
@@ -1143,10 +1150,10 @@ mod test {
                 Plus,
                 Return
             ],
-            [err, sym::SYMBOL_NAME, 4],
+            [err, defun::SYMBOL_NAME, 4],
             cx
         );
         check_bytecode!(bytecode, [3], 7, cx);
-        check_bytecode!(bytecode, [sym::FLOOR], "floor", cx);
+        check_bytecode!(bytecode, [defun::FLOOR], "floor", cx);
     }
 }

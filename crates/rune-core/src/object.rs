@@ -15,20 +15,22 @@ mod convert;
 mod float;
 mod func;
 mod hashtable;
+mod stack;
 mod string;
 mod tagged;
 mod vector;
 
 #[allow(unused_imports)]
-pub(crate) use buffer::*;
-pub(super) use cell::*;
-pub(crate) use convert::*;
-pub(crate) use float::*;
-pub(crate) use func::*;
-pub(crate) use hashtable::*;
-pub(crate) use string::*;
-pub(crate) use tagged::*;
-pub(crate) use vector::*;
+pub use buffer::*;
+pub use cell::*;
+pub use convert::*;
+pub use float::*;
+pub use func::*;
+pub use hashtable::*;
+pub use stack::*;
+pub use string::*;
+pub use tagged::*;
+pub use vector::*;
 
 use std::fmt::Write as _;
 

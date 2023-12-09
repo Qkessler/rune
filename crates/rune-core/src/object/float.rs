@@ -1,9 +1,9 @@
-use crate::core::gc::{GcManaged, GcMark};
+use crate::gc::{GcManaged, GcMark};
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
 
 #[derive(PartialEq)]
-pub(crate) struct LispFloat {
+pub struct LispFloat {
     gc: GcMark,
     float: f64,
 }
@@ -11,7 +11,7 @@ pub(crate) struct LispFloat {
 impl Eq for LispFloat {}
 
 impl LispFloat {
-    pub(in crate::core) fn new(float: f64) -> Self {
+    pub(crate) fn new(float: f64) -> Self {
         Self { gc: GcMark::default(), float }
     }
 }

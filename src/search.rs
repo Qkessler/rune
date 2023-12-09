@@ -1,12 +1,12 @@
 //! Search utilities.
-use crate::core::{
+use anyhow::{bail, ensure, Result};
+use fallible_iterator::FallibleIterator;
+use fancy_regex::Regex;
+use rune_core::{
     env::Env,
     gc::{Context, Rt},
     object::{nil, Gc, GcObj, List},
 };
-use anyhow::{bail, ensure, Result};
-use fallible_iterator::FallibleIterator;
-use fancy_regex::Regex;
 use rune_macros::defun;
 
 #[defun]
@@ -161,7 +161,8 @@ fn string_equal(s1: &str, s2: &str) -> bool {
 
 #[cfg(test)]
 mod test {
-    use crate::{core::gc::RootSet, root};
+    use rune_core::gc::RootSet;
+    use rune_core::macros::root;
 
     use super::*;
 

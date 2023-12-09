@@ -11,18 +11,36 @@ use super::{
 use super::{
     ByteFn, HashTable, LispFloat, LispHashTable, LispString, LispVec, Record, RecordBuilder, SubrFn,
 };
-use crate::core::gc::{GcManaged, Trace};
-use crate::{core::env::sym, hashmap::HashSet};
+
+use crate::gc::{GcManaged, Trace};
+use crate::hashmap::HashSet;
+use float_cmp::ApproxEq;
 use private::{Tag, TaggedPtr};
 use sptr::Strict;
-use std::fmt;
-use std::marker::PhantomData;
+use std::{
+    fmt,
+    ops::{Div, Mul, Neg, Rem, Sub},
+};
+use std::{marker::PhantomData, ops::Add};
 
-pub(crate) type GcObj<'ob> = Gc<Object<'ob>>;
+pub type GcObj<'ob> = Gc<Object<'ob>>;
+
+const NIL: Symbol = Symbol::new_builtin(0);
+const TRUE: Symbol = Symbol::new_builtin(1);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RawObj {
+pub struct RawObj {
     ptr: *const u8,
+}
+
+#[inline(always)]
+pub(crate) fn nil<'a>() -> GcObj<'a> {
+    NIL.into()
+}
+
+#[inline(always)]
+pub(crate) fn qtrue<'a>() -> GcObj<'a> {
+    TRUE.into()
 }
 
 unsafe impl Send for RawObj {}
@@ -33,22 +51,12 @@ impl Default for RawObj {
     }
 }
 
-#[inline(always)]
-pub(crate) fn nil<'a>() -> GcObj<'a> {
-    sym::NIL.into()
-}
-
-#[inline(always)]
-pub(crate) fn qtrue<'a>() -> GcObj<'a> {
-    sym::TRUE.into()
-}
-
 /// This type has two meanings, it is both a value that is tagged as well as
 /// something that is managed by the GC. It is intended to be pointer sized, and
 /// have a lifetime tied to the context which manages garbage collections. A Gc
 /// can be reinterpreted as any type that shares the same tag.
 #[derive(Copy, Clone)]
-pub(crate) struct Gc<T> {
+pub struct Gc<T> {
     ptr: *const u8,
     _data: PhantomData<T>,
 }
@@ -78,42 +86,42 @@ impl<T> Gc<T> {
         unsafe { std::mem::transmute(self.ptr.addr() as u8) }
     }
 
-    pub(crate) fn into_raw(self) -> RawObj {
+    pub fn into_raw(self) -> RawObj {
         RawObj { ptr: self.ptr }
     }
 
-    pub(in crate::core) fn into_ptr(self) -> *const u8 {
+    pub fn into_ptr(self) -> *const u8 {
         self.ptr
     }
 
-    pub(crate) unsafe fn from_raw(raw: RawObj) -> Self {
+    pub unsafe fn from_raw(raw: RawObj) -> Self {
         Self::new(raw.ptr)
     }
 
-    pub(crate) unsafe fn from_raw_ptr(raw: *mut u8) -> Self {
+    pub unsafe fn from_raw_ptr(raw: *mut u8) -> Self {
         Self::new(raw)
     }
 
-    pub(crate) fn ptr_eq<U>(self, other: Gc<U>) -> bool {
+    pub fn ptr_eq<U>(self, other: Gc<U>) -> bool {
         self.ptr == other.ptr
     }
 
-    pub(crate) fn copy_as_obj<const C: bool>(self, _: &Block<C>) -> Gc<Object> {
+    pub fn copy_as_obj<const C: bool>(self, _: &Block<C>) -> Gc<Object> {
         Gc::new(self.ptr)
     }
 
-    pub(crate) fn as_obj(&self) -> Gc<Object<'_>> {
+    pub fn as_obj(&self) -> Gc<Object<'_>> {
         Gc::new(self.ptr)
     }
 }
 
 impl<T: TaggedPtr> Gc<T> {
-    pub(crate) fn untag(self) -> T {
+    pub fn untag(self) -> T {
         T::untag(self)
     }
 }
 
-pub(crate) trait Untag<T> {
+pub trait Untag<T> {
     fn untag_erased(self) -> T;
 }
 
@@ -126,7 +134,7 @@ impl<T: TaggedPtr> Untag<T> for Gc<T> {
 /// A wrapper trait to expose the `tag` method for GC managed references and
 /// immediate values. This is convenient when we don't have access to the
 /// `Context` but want to retag a value. Doesn't currently have a lot of use.
-pub(crate) trait TagType
+pub trait TagType
 where
     Self: Sized,
 {
@@ -155,7 +163,7 @@ impl<'a, T: 'a + Copy> From<Gc<T>> for Object<'a> {
 // Traits for Objects //
 ////////////////////////
 
-pub(crate) trait WithLifetime<'new> {
+pub trait WithLifetime<'new> {
     type Out: 'new;
     unsafe fn with_lifetime(self) -> Self::Out;
 }
@@ -179,7 +187,7 @@ impl<'new, 'old, T: GcManaged + 'new> WithLifetime<'new> for &'old T {
 /// Trait for types that can be managed by the GC. This trait is implemented for
 /// as many types as possible, even for types that are already Gc managed, Like
 /// `Gc<T>`. This makes it easier to write generic code for working with Gc types.
-pub(crate) trait IntoObject {
+pub trait IntoObject {
     type Out<'ob>;
 
     fn into_obj<const C: bool>(self, block: &Block<C>) -> Gc<Self::Out<'_>>;
@@ -227,23 +235,11 @@ impl IntoObject for f64 {
     }
 }
 
-impl IntoObject for bool {
-    type Out<'a> = Symbol<'a>;
-
-    fn into_obj<const C: bool>(self, _: &Block<C>) -> Gc<Self::Out<'_>> {
-        let sym = match self {
-            true => sym::TRUE,
-            false => sym::NIL,
-        };
-        unsafe { Self::Out::tag_ptr(sym.get_ptr()) }
-    }
-}
-
 impl IntoObject for () {
     type Out<'a> = Symbol<'a>;
 
     fn into_obj<const C: bool>(self, _: &Block<C>) -> Gc<Self::Out<'_>> {
-        unsafe { Self::Out::tag_ptr(sym::NIL.get_ptr()) }
+        unsafe { Self::Out::tag_ptr(NIL.get_ptr()) }
     }
 }
 
@@ -344,8 +340,9 @@ impl<'a> IntoObject for HashTable<'a> {
 mod private {
     use super::{Gc, WithLifetime};
 
+    #[derive(Copy, Clone)]
     #[repr(u8)]
-    pub(crate) enum Tag {
+    pub enum Tag {
         // Symbol must be 0 to enable nil to be all zeroes
         Symbol = 0,
         Int,
@@ -385,7 +382,7 @@ mod private {
     ///
     /// Every method has a default implementation, and the doc string
     /// indicates if it should be reimplemented or left untouched.
-    pub(crate) trait TaggedPtr: Copy + for<'a> WithLifetime<'a> {
+    pub trait TaggedPtr: Copy + for<'a> WithLifetime<'a> {
         /// The type of object being pointed to. This will be different for all
         /// implementors.
         type Ptr;
@@ -503,7 +500,7 @@ impl<'a> TaggedPtr for List<'a> {
 
     fn tag(self) -> Gc<Self> {
         match self {
-            List::Nil => unsafe { cast_gc(TaggedPtr::tag(sym::NIL)) },
+            List::Nil => unsafe { cast_gc(TaggedPtr::tag(NIL)) },
             List::Cons(x) => TaggedPtr::tag(x).into(),
         }
     }
@@ -586,7 +583,7 @@ impl TaggedPtr for i64 {
     }
 }
 
-pub(crate) fn int_to_char(int: i64) -> Result<char, TypeError> {
+pub fn int_to_char(int: i64) -> Result<char, TypeError> {
     let err = TypeError::new(Type::Char, TagType::tag(int));
     match u32::try_from(int) {
         Ok(x) => match char::from_u32(x) {
@@ -747,11 +744,133 @@ macro_rules! cast_gc {
 // Number
 #[derive(Copy, Clone)]
 #[repr(u8)]
-pub(crate) enum Number<'ob> {
+pub enum Number<'ob> {
     Int(i64) = Tag::Int as u8,
     Float(&'ob LispFloat) = Tag::Float as u8,
 }
 cast_gc!(Number<'ob> => i64, &LispFloat);
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum NumberValue {
+    Int(i64),
+    Float(f64),
+}
+
+impl<'ob> Gc<Number<'ob>> {
+    pub fn val(self) -> NumberValue {
+        match self.untag() {
+            Number::Int(x) => NumberValue::Int(x),
+            Number::Float(x) => NumberValue::Float(**x),
+        }
+    }
+}
+
+impl<'ob> PartialEq<i64> for Gc<Number<'ob>> {
+    fn eq(&self, other: &i64) -> bool {
+        match self.val() {
+            NumberValue::Int(num) => num == *other,
+            NumberValue::Float(num) => num == *other as f64,
+        }
+    }
+}
+
+impl<'ob> PartialEq<f64> for Gc<Number<'ob>> {
+    fn eq(&self, other: &f64) -> bool {
+        match self.val() {
+            NumberValue::Int(num) => num as f64 == *other,
+            NumberValue::Float(num) => num.approx_eq(*other, (f64::EPSILON, 2)),
+        }
+    }
+}
+
+impl IntoObject for NumberValue {
+    type Out<'ob> = Object<'ob>;
+
+    fn into_obj<const C: bool>(self, block: &Block<C>) -> Gc<Self::Out<'_>> {
+        match self {
+            NumberValue::Int(x) => x.into(),
+            NumberValue::Float(x) => block.add(x),
+        }
+    }
+}
+
+fn arith(
+    cur: NumberValue,
+    next: NumberValue,
+    int_fn: fn(i64, i64) -> i64,
+    float_fn: fn(f64, f64) -> f64,
+) -> NumberValue {
+    match cur {
+        NumberValue::Float(cur) => match next {
+            NumberValue::Float(next) => NumberValue::Float(float_fn(cur, next)),
+            NumberValue::Int(next) => NumberValue::Float(float_fn(cur, next as f64)),
+        },
+        NumberValue::Int(cur) => match next {
+            NumberValue::Float(next) => NumberValue::Float(float_fn(cur as f64, next)),
+            NumberValue::Int(next) => NumberValue::Int(int_fn(cur, next)),
+        },
+    }
+}
+
+impl Neg for NumberValue {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        match self {
+            NumberValue::Int(x) => NumberValue::Int(-x),
+            NumberValue::Float(x) => NumberValue::Float(-x),
+        }
+    }
+}
+
+impl Add for NumberValue {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        arith(self, rhs, Add::add, Add::add)
+    }
+}
+
+impl Sub for NumberValue {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        arith(self, rhs, Sub::sub, Sub::sub)
+    }
+}
+
+impl Mul for NumberValue {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        arith(self, rhs, Mul::mul, Mul::mul)
+    }
+}
+
+impl Div for NumberValue {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        arith(self, rhs, Div::div, Div::div)
+    }
+}
+
+impl Rem for NumberValue {
+    type Output = Self;
+    fn rem(self, rhs: Self) -> Self::Output {
+        arith(self, rhs, Rem::rem, Rem::rem)
+    }
+}
+
+impl PartialOrd for NumberValue {
+    fn partial_cmp(&self, other: &NumberValue) -> Option<std::cmp::Ordering> {
+        match self {
+            NumberValue::Int(lhs) => match other {
+                NumberValue::Int(rhs) => lhs.partial_cmp(rhs),
+                NumberValue::Float(rhs) => (*lhs as f64).partial_cmp(rhs),
+            },
+            NumberValue::Float(lhs) => match other {
+                NumberValue::Int(rhs) => lhs.partial_cmp(&(*rhs as f64)),
+                NumberValue::Float(rhs) => lhs.partial_cmp(rhs),
+            },
+        }
+    }
+}
 
 impl<'old, 'new> WithLifetime<'new> for Number<'old> {
     type Out = Number<'new>;
@@ -764,14 +883,14 @@ impl<'old, 'new> WithLifetime<'new> for Number<'old> {
 // List
 #[derive(Copy, Clone)]
 #[repr(u8)]
-pub(crate) enum List<'ob> {
+pub enum List<'ob> {
     Nil = 0,
     Cons(&'ob Cons) = Tag::Cons as u8,
 }
 cast_gc!(List<'ob> => &'ob Cons);
 
 impl List<'_> {
-    pub(crate) fn empty() -> Gc<Self> {
+    pub fn empty() -> Gc<Self> {
         unsafe { cast_gc(nil()) }
     }
 }
@@ -787,7 +906,7 @@ impl<'old, 'new> WithLifetime<'new> for List<'old> {
 // Function
 #[derive(Copy, Clone, Debug)]
 #[repr(u8)]
-pub(crate) enum Function<'ob> {
+pub enum Function<'ob> {
     ByteFn(&'ob ByteFn) = Tag::ByteFn as u8,
     SubrFn(&'static SubrFn) = Tag::SubrFn as u8,
     Cons(&'ob Cons) = Tag::Cons as u8,
@@ -841,7 +960,7 @@ impl<'ob> Function<'ob> {
 /// The Object defintion that contains all other possible lisp objects. This
 /// type must remain covariant over 'ob. This is just an expanded form of our
 /// tagged pointer type to take advantage of ergonomics of enums in Rust.
-pub(crate) enum Object<'ob> {
+pub enum Object<'ob> {
     Int(i64) = Tag::Int as u8,
     Float(&'ob LispFloat) = Tag::Float as u8,
     Symbol(Symbol<'ob>) = Tag::Symbol as u8,
@@ -857,10 +976,10 @@ pub(crate) enum Object<'ob> {
 cast_gc!(Object<'ob> => Number<'ob>, List<'ob>, Function<'ob>, i64, Symbol<'_>, &LispFloat, &'ob Cons, &'ob LispVec, &'ob Record, &'ob LispHashTable, &'ob LispString, &'ob ByteFn, &'ob SubrFn, &'ob LispBuffer);
 
 impl Object<'_> {
-    pub(crate) const NIL: Object<'static> = Object::Symbol(sym::NIL);
-    pub(crate) const TRUE: Object<'static> = Object::Symbol(sym::TRUE);
+    pub const NIL: Object<'static> = Object::Symbol(NIL);
+    pub const TRUE: Object<'static> = Object::Symbol(TRUE);
     /// Return the type of an object
-    pub(crate) fn get_type(self) -> Type {
+    pub fn get_type(self) -> Type {
         match self {
             Object::Int(_) => Type::Int,
             Object::Float(_) => Type::Float,
@@ -1037,7 +1156,7 @@ impl<'ob> TryFrom<Gc<Object<'ob>>> for Gc<i64> {
 // This function is needed due to the lack of specialization and there being a
 // blanket impl for From<T> for Option<T>
 impl<'ob> GcObj<'ob> {
-    pub(crate) fn try_from_option<T, E>(value: GcObj<'ob>) -> Result<Option<T>, E>
+    pub fn try_from_option<T, E>(value: GcObj<'ob>) -> Result<Option<T>, E>
     where
         GcObj<'ob>: TryInto<T, Error = E>,
     {
@@ -1048,8 +1167,8 @@ impl<'ob> GcObj<'ob> {
         }
     }
 
-    pub(crate) fn is_nil(self) -> bool {
-        self == sym::NIL
+    pub fn is_nil(self) -> bool {
+        self == NIL
     }
 }
 
@@ -1116,7 +1235,7 @@ impl<'ob> std::ops::Deref for Gc<&'ob Cons> {
     }
 }
 
-pub(crate) trait CloneIn<'new, T>
+pub trait CloneIn<'new, T>
 where
     T: 'new,
 {
@@ -1168,7 +1287,6 @@ impl<'ob> PartialEq<Symbol<'_>> for Gc<Object<'ob>> {
 
 impl<'ob> PartialEq<f64> for Gc<Object<'ob>> {
     fn eq(&self, other: &f64) -> bool {
-        use float_cmp::ApproxEq;
         match self.untag() {
             Object::Float(x) => x.approx_eq(*other, (f64::EPSILON, 2)),
             _ => false,
@@ -1188,15 +1306,15 @@ impl<'ob> PartialEq<i64> for Gc<Object<'ob>> {
 impl<'ob> PartialEq<bool> for Gc<Object<'ob>> {
     fn eq(&self, other: &bool) -> bool {
         if *other {
-            matches!(self.untag(), Object::Symbol(sym::TRUE))
+            matches!(self.untag(), Object::Symbol(TRUE))
         } else {
-            matches!(self.untag(), Object::Symbol(sym::NIL))
+            matches!(self.untag(), Object::Symbol(NIL))
         }
     }
 }
 
 impl<'ob> Gc<Object<'ob>> {
-    pub(crate) fn as_cons(self) -> &'ob Cons {
+    pub fn as_cons(self) -> &'ob Cons {
         self.try_into().unwrap()
     }
 }
@@ -1312,8 +1430,8 @@ impl<'ob> Gc<Object<'ob>> {
 }
 
 impl<'ob> List<'ob> {
-    #[cfg(test)]
-    pub(crate) fn car(self) -> GcObj<'ob> {
+    /// See [`Cons::car`].
+    pub fn car(self) -> GcObj<'ob> {
         match self {
             List::Nil => nil(),
             List::Cons(x) => x.car(),
@@ -1324,7 +1442,7 @@ impl<'ob> List<'ob> {
 #[cfg(test)]
 mod test {
     use super::{TagType, MAX_FIXNUM, MIN_FIXNUM};
-    use crate::core::gc::{Context, RootSet};
+    use crate::gc::{Context, RootSet};
 
     #[test]
     fn test_clamp_fixnum() {
@@ -1340,7 +1458,7 @@ mod test {
     fn test_print_circle() {
         let roots = &RootSet::default();
         let cx = &Context::new(roots);
-        let cons = list![1; cx];
+        let cons = crate::macros::list![1; cx];
         cons.as_cons().set_cdr(cons).unwrap();
         assert_eq!(format!("{cons}"), "(1 . #0)");
 

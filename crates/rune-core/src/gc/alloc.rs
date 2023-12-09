@@ -1,7 +1,7 @@
 use super::Block;
-use crate::core::cons::Cons;
-use crate::core::env::SymbolCell;
-use crate::core::object::{ByteFn, LispBuffer, LispFloat, LispHashTable, LispString, LispVec};
+use crate::cons::Cons;
+use crate::env::SymbolCell;
+use crate::object::{ByteFn, LispBuffer, LispFloat, LispHashTable, LispString, LispVec};
 use std::fmt::Debug;
 
 /// The owner of an object allocation. No references to
@@ -18,7 +18,7 @@ pub(super) enum OwnedObject {
     Buffer(Box<LispBuffer>),
 }
 
-pub(in crate::core) trait AllocObject
+pub(crate) trait AllocObject
 where
     Self: Sized,
 {

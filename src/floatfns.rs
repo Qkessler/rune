@@ -1,10 +1,7 @@
 //! Operations on floats.
-use crate::{
-    arith::NumberValue,
-    core::{
-        gc::Context,
-        object::{Gc, Number},
-    },
+use rune_core::{
+    gc::Context,
+    object::{Gc, Number, NumberValue},
 };
 use rune_macros::defun;
 

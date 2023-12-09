@@ -6,7 +6,8 @@ use super::{
     display_slice, CloneIn, IntoObject, LispString, LispVec,
 };
 use super::{GcObj, WithLifetime};
-use crate::core::gc::{GcManaged, GcMark, Rt};
+use crate::gc::{GcManaged, GcMark, Rt};
+use crate::macros::define_unbox;
 use anyhow::{bail, ensure, Result};
 use rune_macros::Trace;
 use std::fmt::{self, Debug, Display};
@@ -14,12 +15,12 @@ use std::fmt::{self, Debug, Display};
 /// A function implemented in lisp. Note that all functions are byte compiled,
 /// so this contains the byte-code representation of the function.
 #[derive(PartialEq, Eq, Trace)]
-pub(crate) struct ByteFn {
+pub struct ByteFn {
     gc: GcMark,
     #[no_trace]
-    pub(crate) args: FnArgs,
+    pub args: FnArgs,
     #[no_trace]
-    pub(crate) depth: usize,
+    pub depth: usize,
     op_codes: &'static LispString,
     constants: &'static LispVec,
 }
@@ -27,12 +28,7 @@ pub(crate) struct ByteFn {
 define_unbox!(ByteFn, Func, &'ob ByteFn);
 
 impl ByteFn {
-    pub(crate) unsafe fn new(
-        op_codes: &LispString,
-        consts: &LispVec,
-        args: FnArgs,
-        depth: usize,
-    ) -> Self {
+    pub unsafe fn new(op_codes: &LispString, consts: &LispVec, args: FnArgs, depth: usize) -> Self {
         Self {
             gc: GcMark::default(),
             constants: unsafe { consts.with_lifetime() },
@@ -42,15 +38,15 @@ impl ByteFn {
         }
     }
 
-    pub(crate) fn codes<'a>(&'a self) -> &'a LispString {
+    pub fn codes<'a>(&'a self) -> &'a LispString {
         unsafe { std::mem::transmute::<&'static LispString, &'a LispString>(self.op_codes) }
     }
 
-    pub(crate) fn constants<'a>(&'a self) -> &'a LispVec {
+    pub fn constants<'a>(&'a self) -> &'a LispVec {
         unsafe { std::mem::transmute::<&'static LispVec, &'a LispVec>(self.constants) }
     }
 
-    pub(crate) fn index(&self, index: usize) -> Option<GcObj> {
+    pub fn index(&self, index: usize) -> Option<GcObj> {
         match index {
             0 => Some((self.args.into_arg_spec() as i64).into()),
             1 => Some(self.codes().into()),
@@ -60,7 +56,7 @@ impl ByteFn {
         }
     }
 
-    pub(crate) const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         4
     }
 }
@@ -80,11 +76,11 @@ impl<'new> CloneIn<'new, &'new Self> for ByteFn {
 }
 
 impl Rt<&'static ByteFn> {
-    pub(crate) fn code(&self) -> &Rt<&'static LispString> {
+    pub fn code(&self) -> &Rt<&'static LispString> {
         unsafe { &*std::ptr::addr_of!(self.bind_unchecked().op_codes).cast() }
     }
 
-    pub(crate) fn consts(&self) -> &Rt<&'static LispVec> {
+    pub fn consts(&self) -> &Rt<&'static LispVec> {
         unsafe { &*std::ptr::addr_of!(self.bind_unchecked().constants).cast() }
     }
 }
@@ -115,21 +111,21 @@ impl Debug for ByteFn {
     }
 }
 
-/// Argument requirments to a function.
+/// Argument requirements to a function.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-pub(crate) struct FnArgs {
+pub struct FnArgs {
     /// a &rest argument.
-    pub(crate) rest: bool,
+    pub rest: bool,
     /// minimum required arguments.
-    pub(crate) required: u16,
+    pub required: u16,
     /// &optional arguments.
-    pub(crate) optional: u16,
+    pub optional: u16,
     /// If this function is advised.
-    pub(crate) advice: bool,
+    pub advice: bool,
 }
 
 impl FnArgs {
-    pub(crate) fn from_arg_spec(spec: u64) -> Result<Self> {
+    pub fn from_arg_spec(spec: u64) -> Result<Self> {
         // The spec is an integer of the form NNNNNNNRMMMMMMM where the 7bit
         // MMMMMMM specifies the minimum number of arguments, the 7-bit NNNNNNN
         // specifies the maximum number of arguments (ignoring &rest) and the R
@@ -146,7 +142,7 @@ impl FnArgs {
         Ok(FnArgs { required, optional, rest, advice: false })
     }
 
-    pub(crate) fn into_arg_spec(self) -> u64 {
+    pub fn into_arg_spec(self) -> u64 {
         let mut spec = self.required;
         let max = self.required + self.optional;
         spec |= max << 8;
@@ -158,7 +154,7 @@ impl FnArgs {
     /// If a function has 3 required args and 2 optional, and it is called with
     /// 4 arguments, then 1 will be returned. Indicating that 1 additional `nil`
     /// argument should be added to the stack.
-    pub(crate) fn num_of_fill_args(self, args: u16, name: &str) -> Result<u16> {
+    pub fn num_of_fill_args(self, args: u16, name: &str) -> Result<u16> {
         if args < self.required {
             bail!(ArgError::new(self.required, args, name));
         }
@@ -172,23 +168,23 @@ impl FnArgs {
 
 pub(crate) type BuiltInFn = for<'ob> fn(
     &[Rt<GcObj<'static>>],
-    &mut Rt<crate::core::env::Env>,
+    &mut Rt<crate::env::Env>,
     &'ob mut Context,
 ) -> Result<GcObj<'ob>>;
 
-#[derive(Eq)]
-pub(crate) struct SubrFn {
-    pub(crate) subr: BuiltInFn,
-    pub(crate) args: FnArgs,
-    pub(crate) name: &'static str,
+#[derive(Eq, Clone, Copy)]
+pub struct SubrFn {
+    pub subr: BuiltInFn,
+    pub args: FnArgs,
+    pub name: &'static str,
 }
 define_unbox!(SubrFn, Func, &'ob SubrFn);
 
 impl SubrFn {
-    pub(crate) fn call<'ob>(
+    pub fn call<'ob>(
         &self,
         args: &[Rt<GcObj<'static>>],
-        env: &mut Rt<crate::core::env::Env>,
+        env: &mut Rt<crate::env::Env>,
         cx: &'ob mut Context,
     ) -> Result<GcObj<'ob>> {
         (self.subr)(args, env, cx)

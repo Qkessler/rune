@@ -1,5 +1,5 @@
 //! Keymap handling.
-use crate::core::object::GcObj;
+use rune_core::object::GcObj;
 use rune_macros::defun;
 
 // TODO: implement keymaps
@@ -17,5 +17,3 @@ fn set_keymap_parent<'ob>(_keymap: GcObj<'ob>, _parent: GcObj<'ob>) {}
 
 #[defun]
 pub(crate) fn define_key<'ob>(_keymap: GcObj<'ob>, _key: GcObj<'ob>, _def: GcObj<'ob>) {}
-
-defvar!(MINIBUFFER_LOCAL_MAP);

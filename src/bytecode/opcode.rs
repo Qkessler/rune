@@ -3,7 +3,7 @@ use num_enum::TryFromPrimitive;
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug, TryFromPrimitive)]
 #[repr(u8)]
-pub(crate) enum OpCode {
+pub enum OpCode {
     StackRef0 = 0,
     StackRef1 = 1,
     StackRef2 = 2,

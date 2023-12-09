@@ -12,20 +12,20 @@ use super::{GcObj, WithLifetime};
 /// be copy or clone.
 #[derive(PartialEq, Eq)]
 #[repr(transparent)]
-pub(crate) struct ObjCell(Cell<GcObj<'static>>);
+pub struct ObjCell(Cell<GcObj<'static>>);
 
 impl ObjCell {
-    pub(crate) fn get(&self) -> GcObj {
+    pub fn get(&self) -> GcObj {
         unsafe { self.0.get().with_lifetime() }
     }
 
-    pub(in crate::core) unsafe fn new(obj: GcObj) -> Self {
+    pub unsafe fn new(obj: GcObj) -> Self {
         Self(Cell::new(obj.with_lifetime()))
     }
 
     /// Casts to a `MutObjCell`. Caller must ensure that the data structure is
     /// mutable.
-    pub(in crate::core) unsafe fn as_mut(&self) -> &MutObjCell {
+    pub unsafe fn as_mut(&self) -> &MutObjCell {
         &*(self as *const Self).cast()
     }
 }
@@ -48,7 +48,7 @@ impl fmt::Debug for ObjCell {
 /// cell.
 #[derive(PartialEq)]
 #[repr(transparent)]
-pub(crate) struct MutObjCell(ObjCell);
+pub struct MutObjCell(ObjCell);
 
 impl std::ops::Deref for MutObjCell {
     type Target = ObjCell;
@@ -59,7 +59,7 @@ impl std::ops::Deref for MutObjCell {
 }
 
 impl MutObjCell {
-    pub(crate) fn set(&self, value: GcObj) {
+    pub fn set(&self, value: GcObj) {
         unsafe {
             self.0 .0.set(value.with_lifetime());
         }

@@ -1,10 +1,11 @@
 //! builtin lisp data structures.
-use crate::core::env::{Symbol, SymbolCell};
-use crate::core::gc::Context;
-use crate::core::object::{
+use anyhow::{ensure, Result};
+use rune_core::env::{Symbol, SymbolCell};
+use rune_core::gc::Context;
+use rune_core::macros::cons;
+use rune_core::object::{
     nil, ByteFn, FnArgs, Gc, GcObj, IntoObject, LispString, LispVec, RecordBuilder,
 };
-use anyhow::{ensure, Result};
 use rune_macros::defun;
 
 #[defun]

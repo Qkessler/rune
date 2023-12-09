@@ -1,13 +1,13 @@
 //! Utilities for variables and values.
-use crate::core::{
-    cons::Cons,
-    env::{interned_symbols, sym, Env, Symbol},
-    error::{Type, TypeError},
-    gc::{Context, IntoRoot, Rt},
-    object::{nil, Gc, GcObj, List, Number, Object, SubrFn},
-};
-use crate::hashmap::HashSet;
+use crate::init::interned_symbols;
 use anyhow::{anyhow, Result};
+use rune_core::cons::Cons;
+use rune_core::env::{sym, Env, Symbol};
+use rune_core::error::{Type, TypeError};
+use rune_core::gc::{Context, IntoRoot, Rt};
+use rune_core::hashmap::HashSet;
+use rune_core::macros::cons;
+use rune_core::object::{nil, Gc, GcObj, List, Number, Object, SubrFn};
 use rune_macros::defun;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -374,14 +374,14 @@ pub(crate) fn aref(array: GcObj, idx: usize) -> Result<GcObj> {
 fn type_of(object: GcObj) -> GcObj {
     match object.untag() {
         Object::Int(_) => sym::INTEGER.into(),
-        Object::Float(_) => sym::FLOAT.into(),
+        Object::Float(_) => crate::defun::FLOAT.into(),
         Object::Symbol(_) => sym::SYMBOL.into(),
-        Object::Cons(_) => sym::CONS.into(),
-        Object::Vec(_) => sym::VECTOR.into(),
+        Object::Cons(_) => crate::defun::CONS.into(),
+        Object::Vec(_) => crate::defun::VECTOR.into(),
         Object::Record(x) => x.first().expect("record was missing type").get(),
         Object::ByteFn(_) => sym::COMPILED_FUNCTION.into(),
         Object::HashTable(_) => sym::HASH_TABLE.into(),
-        Object::String(_) => sym::STRING.into(),
+        Object::String(_) => crate::defun::STRING.into(),
         Object::SubrFn(_) => sym::SUBR.into(),
         Object::Buffer(_) => sym::BUFFER.into(),
     }
@@ -453,7 +453,7 @@ pub(crate) fn setcdr<'ob>(cell: &Cons, newcdr: GcObj<'ob>) -> Result<GcObj<'ob>>
 
 #[defun]
 pub(crate) fn cons<'ob>(car: GcObj, cdr: GcObj, cx: &'ob Context) -> GcObj<'ob> {
-    crate::cons!(car, cdr; cx)
+    cons!(car, cdr; cx)
 }
 
 // Symbol with position
@@ -471,7 +471,15 @@ fn symbol_with_pos_p(_sym: GcObj) -> bool {
 
 #[cfg(test)]
 mod test {
+    use crate::init::{defun, intern};
+
     use super::*;
+    use rune_core::{
+        env::{SymbolCell, NIL},
+        gc::{Context, RootSet},
+        macros::list,
+        object::Function,
+    };
 
     #[test]
     fn test_ash() {
@@ -481,12 +489,75 @@ mod test {
         assert_eq!(ash(256, -8), 1);
         assert_eq!(ash(-8, 1), -16);
     }
-}
 
-defsym!(MANY);
-defsym!(INTEGER);
-defsym!(SYMBOL);
-defsym!(COMPILED_FUNCTION);
-defsym!(HASH_TABLE);
-defsym!(BUFFER);
-defsym!(SUBR);
+    unsafe fn fix_lifetime(inner: Symbol) -> Symbol<'static> {
+        std::mem::transmute::<Symbol, Symbol<'static>>(inner)
+    }
+
+    #[test]
+    fn init() {
+        let roots = &RootSet::default();
+        let cx = &Context::new(roots);
+        intern("foo", cx);
+    }
+
+    #[test]
+    fn symbol_func() {
+        let roots = &RootSet::default();
+        let cx = &Context::new(roots);
+        defun::init_defun();
+        let inner = SymbolCell::new("foo");
+        let sym = unsafe { fix_lifetime(Symbol::new(&inner)) };
+        assert_eq!("foo", sym.name());
+        assert!(sym.func(cx).is_none());
+        let func1 = cons!(1; cx);
+        unsafe {
+            sym.set_func(func1.try_into().unwrap()).unwrap();
+        }
+        let cell1 = sym.func(cx).unwrap();
+        let Function::Cons(before) = cell1.untag() else {
+            unreachable!("Type should be a lisp function")
+        };
+        assert_eq!(before.car(), 1);
+        let func2 = cons!(2; cx);
+        unsafe {
+            sym.set_func(func2.try_into().unwrap()).unwrap();
+        }
+        let cell2 = sym.func(cx).unwrap();
+        let Function::Cons(after) = cell2.untag() else {
+            unreachable!("Type should be a lisp function")
+        };
+        assert_eq!(after.car(), 2);
+        assert_eq!(before.car(), 1);
+
+        unsafe {
+            sym.set_func(NIL.into()).unwrap();
+        }
+        assert!(!sym.has_func());
+    }
+
+    #[test]
+    fn test_mutability() {
+        let roots = &RootSet::default();
+        let cx = &Context::new(roots);
+        let cons = list!(1, 2, 3; cx);
+        assert_eq!(cons, list!(1, 2, 3; cx));
+        // is mutable
+        if let Object::Cons(cons) = cons.untag() {
+            cons.set_car(4.into()).unwrap();
+        } else {
+            unreachable!();
+        }
+        assert_eq!(cons, list!(4, 2, 3; cx));
+        let sym = intern("cons-test", cx);
+        crate::data::fset(sym, cons).unwrap();
+        // is not mutable
+        if let Function::Cons(cons) = sym.func(cx).unwrap().untag() {
+            assert!(cons.set_car(5.into()).is_err());
+            let obj: GcObj = cons.into();
+            assert_eq!(obj, list!(4, 2, 3; cx));
+        } else {
+            unreachable!();
+        }
+    }
+}

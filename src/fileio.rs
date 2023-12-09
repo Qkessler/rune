@@ -1,15 +1,13 @@
 //! File I/O.
-use crate::core::{
+use anyhow::Result;
+use rune_core::{
     cons::Cons,
     env::{sym, Env},
     gc::{Context, Rt},
     object::{Gc, Number, Object},
 };
-use anyhow::Result;
 use rune_macros::defun;
 use std::path::Path;
-
-defvar!(FILE_NAME_HANDLER_ALIST);
 
 #[defun]
 pub(crate) fn expand_file_name(

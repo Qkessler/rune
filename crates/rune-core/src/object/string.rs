@@ -1,5 +1,5 @@
 use super::{CloneIn, IntoObject};
-use crate::core::gc::{Block, GcManaged, GcMark};
+use crate::gc::{Block, GcManaged, GcMark};
 use anyhow::Result;
 use bstr::{BStr, BString, ByteSlice};
 use rune_macros::Trace;
@@ -9,7 +9,7 @@ use std::{
 };
 
 #[derive(PartialEq, Eq, Trace)]
-pub(crate) struct LispString {
+pub struct LispString {
     gc: GcMark,
     #[no_trace]
     string: StrType,
@@ -24,29 +24,29 @@ enum StrType {
 }
 
 impl LispString {
-    pub(crate) fn get_char_at(&self, idx: usize) -> Option<u32> {
+    pub fn get_char_at(&self, idx: usize) -> Option<u32> {
         match &self.string {
             StrType::String(s) => s.chars().nth(idx).map(|c| c.into()),
             StrType::BString(s) => s.iter().nth(idx).map(|b| (*b).into()),
         }
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         match &self.string {
             StrType::String(s) => s.chars().count(),
             StrType::BString(s) => s.len(),
         }
     }
 
-    pub(crate) unsafe fn from_string(value: String) -> Self {
+    pub unsafe fn from_string(value: String) -> Self {
         Self { gc: GcMark::default(), string: StrType::String(value) }
     }
 
-    pub(crate) unsafe fn from_bstring(value: Vec<u8>) -> Self {
+    pub unsafe fn from_bstring(value: Vec<u8>) -> Self {
         Self { gc: GcMark::default(), string: StrType::BString(BString::from(value)) }
     }
 
-    pub(crate) fn is_valid_unicode(&self) -> bool {
+    pub fn is_valid_unicode(&self) -> bool {
         matches!(&self.string, StrType::String(_))
     }
 }

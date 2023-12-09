@@ -1,9 +1,9 @@
 //! Character and string utilities.
-use crate::core::{
+use anyhow::Result;
+use rune_core::{
     gc::Context,
     object::{int_to_char, Gc, GcObj, IntoObject, LispString, Object},
 };
-use anyhow::Result;
 use rune_macros::defun;
 
 #[defun]

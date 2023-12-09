@@ -1,13 +1,13 @@
 //! Time analysis
-use crate::core::{
+use std::time::SystemTime;
+
+use rune_core::{
     env::{sym, Env},
     gc::{Context, Rt},
+    macros::list,
     object::GcObj,
 };
 use rune_macros::defun;
-use std::time::SystemTime;
-
-defvar!(CURRENT_TIME_LIST, true);
 
 #[defun]
 fn current_time<'ob>(cx: &'ob Context, env: &Rt<Env>) -> GcObj<'ob> {

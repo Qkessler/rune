@@ -1,4 +1,4 @@
-use crate::core::{
+use rune_core::{
     gc::{Context, Rt},
     object::{nil, GcObj},
 };

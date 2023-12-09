@@ -1,10 +1,11 @@
 //! Lisp reader that reads an object from a string.
-use crate::core::{
-    env::{intern, sym, Symbol},
+use crate::fns;
+use rune_core::{
+    env::{sym, Symbol},
     gc::Context,
+    macros::list,
     object::GcObj,
 };
-use crate::fns;
 use std::fmt::Display;
 use std::str;
 use std::{fmt, iter::Peekable, str::CharIndices};
@@ -13,7 +14,7 @@ type Result<T> = std::result::Result<T, Error>;
 
 /// Errors that can occur during reading a sexp from a string
 #[derive(PartialEq, Debug, Copy, Clone)]
-pub(crate) enum Error {
+pub enum Error {
     MissingCloseParen(usize),
     MissingCloseBracket(usize),
     MissingStringDel(usize),
@@ -318,9 +319,9 @@ fn intern_symbol<'ob>(symbol: &str, cx: &'ob Context) -> Symbol<'ob> {
     };
     if symbol.contains('\\') {
         let escaped_slice: String = symbol.chars().filter(is_not_escape).collect();
-        intern(escaped_slice.as_str(), cx)
+        crate::init::intern(escaped_slice.as_str(), cx)
     } else {
-        intern(symbol, cx)
+        crate::init::intern(symbol, cx)
     }
 }
 
@@ -510,7 +511,9 @@ pub(crate) fn read<'ob>(slice: &str, cx: &'ob Context) -> Result<(GcObj<'ob>, us
 
 #[cfg(test)]
 mod test {
-    use crate::core::gc::RootSet;
+    use crate::init::intern;
+    use rune_core::gc::RootSet;
+    use rune_core::macros::cons;
 
     use super::*;
 

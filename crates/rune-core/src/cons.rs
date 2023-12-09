@@ -1,16 +1,16 @@
 use crate::hashmap::HashSet;
+use crate::macros::define_unbox;
 
-use super::gc::{Block, Context, GcManaged, GcMark, Trace};
-use super::object::{nil, CloneIn, Gc, GcObj, IntoObject, ObjCell, Object, RawObj};
+use crate::gc::{Block, Context, GcManaged, GcMark, Trace};
+use crate::object::{nil, CloneIn, Gc, GcObj, IntoObject, ObjCell, Object, RawObj};
 use anyhow::{anyhow, Result};
 use std::fmt::{self, Debug, Display, Write};
 
 mod iter;
-
-pub(crate) use iter::*;
+pub use iter::*;
 
 #[derive(Eq)]
-pub(crate) struct Cons {
+pub struct Cons {
     marked: GcMark,
     mutable: bool,
     car: ObjCell,
@@ -27,7 +27,7 @@ impl Cons {
     // SAFETY: Cons must always be allocated in the GC heap, it cannot live on
     // the stack. Otherwise it could outlive it's objects since it has no
     // lifetimes.
-    pub(crate) unsafe fn new_unchecked(car: GcObj, cdr: GcObj) -> Self {
+    pub unsafe fn new_unchecked(car: GcObj, cdr: GcObj) -> Self {
         Self {
             marked: GcMark::default(),
             mutable: true,
@@ -37,7 +37,7 @@ impl Cons {
     }
 
     /// Create a new cons cell
-    pub(crate) fn new<'ob, T, Tx, U, Ux>(car: T, cdr: U, cx: &'ob Context) -> &'ob Self
+    pub fn new<'ob, T, Tx, U, Ux>(car: T, cdr: U, cx: &'ob Context) -> &'ob Self
     where
         T: IntoObject<Out<'ob> = Tx>,
         Gc<Tx>: Into<GcObj<'ob>>,
@@ -51,7 +51,7 @@ impl Cons {
     }
 
     /// Create a new cons cell with the cdr set to nil
-    pub(crate) fn new1<'ob, T, Tx>(car: T, cx: &'ob Context) -> &'ob Self
+    pub fn new1<'ob, T, Tx>(car: T, cx: &'ob Context) -> &'ob Self
     where
         T: IntoObject<Out<'ob> = Tx>,
         Gc<Tx>: Into<GcObj<'ob>>,
@@ -61,19 +61,34 @@ impl Cons {
         cons.into_obj(cx).untag()
     }
 
-    pub(in crate::core) fn mark_const(&mut self) {
+    pub fn mark_const(&mut self) {
         self.mutable = false;
     }
 
-    pub(crate) fn car(&self) -> GcObj {
+    /// See [`Cons::cdr`]. The CAR of a list is, quite simply, the first item in the list.
+    /// See [Emacs manual](https://www.gnu.org/software/emacs/manual/html_node/eintr/car-_0026-cdr.html).
+    ///
+    /// # Examples:
+    ///
+    /// '(rose violet daisy buttercup) -> car -> rose
+    /// '(test) -> car -> test
+    pub fn car(&self) -> GcObj {
         self.car.get()
     }
 
-    pub(crate) fn cdr(&self) -> GcObj {
+    /// See [`Cons::car`]. The CDR of a list is the rest of the list, that is, the cdr function
+    /// returns the part of the list that follows the first item.
+    /// See [Emacs manual](https://www.gnu.org/software/emacs/manual/html_node/eintr/car-_0026-cdr.html).
+    ///
+    /// # Examples:
+    ///
+    /// '(rose violet daisy buttercup) -> cdr -> (violet daisy buttercup)
+    /// '(test) -> cdr -> nil
+    pub fn cdr(&self) -> GcObj {
         self.cdr.get()
     }
 
-    pub(crate) fn set_car(&self, new_car: GcObj) -> Result<()> {
+    pub fn set_car(&self, new_car: GcObj) -> Result<()> {
         if self.mutable {
             unsafe { self.car.as_mut().set(new_car) }
             Ok(())
@@ -82,7 +97,7 @@ impl Cons {
         }
     }
 
-    pub(crate) fn set_cdr(&self, new_cdr: GcObj) -> Result<()> {
+    pub fn set_cdr(&self, new_cdr: GcObj) -> Result<()> {
         if self.mutable {
             unsafe { self.cdr.as_mut().set(new_cdr) }
             Ok(())
@@ -180,32 +195,10 @@ impl Cons {
 
 define_unbox!(Cons, &'ob Cons);
 
-#[macro_export]
-macro_rules! cons {
-    ($car:expr, $cdr:expr; $cx:expr) => {
-        $cx.add({
-            let car = $cx.add($car);
-            let cdr = $cx.add($cdr);
-            unsafe { $crate::core::cons::Cons::new_unchecked(car, cdr) }
-        })
-    };
-    ($car:expr; $cx:expr) => {
-        $cx.add({
-            let car = $cx.add($car);
-            unsafe { $crate::core::cons::Cons::new_unchecked(car, $crate::core::object::nil()) }
-        })
-    };
-}
-
-#[macro_export]
-macro_rules! list {
-    ($x:expr; $cx:expr) => ($crate::cons!($x; $cx));
-    ($x:expr, $($y:expr),+ $(,)? ; $cx:expr) => ($crate::cons!($x, list!($($y),+ ; $cx) ; $cx));
-}
-
 #[cfg(test)]
 mod test {
-    use crate::core::gc::Context;
+    use crate::gc::Context;
+    use crate::macros::{cons, list};
 
     use super::super::gc::RootSet;
     use super::*;

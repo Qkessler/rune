@@ -8,13 +8,13 @@ use super::{
 };
 
 #[derive(Debug)]
-pub(crate) struct EvalError {
+pub struct EvalError {
     backtrace: Vec<Box<str>>,
-    pub(crate) error: ErrorType,
+    pub error: ErrorType,
 }
 
 #[derive(Debug)]
-pub(crate) enum ErrorType {
+pub enum ErrorType {
     Throw(u32),
     Signal(u32),
     Err(anyhow::Error),
@@ -34,38 +34,38 @@ impl Display for EvalError {
 }
 
 impl EvalError {
-    pub(crate) fn new_error(error: anyhow::Error) -> Self {
+    pub fn new_error(error: anyhow::Error) -> Self {
         Self { backtrace: Vec::new(), error: ErrorType::Err(error) }
     }
 
-    pub(crate) fn signal(error_symbol: GcObj, data: GcObj, env: &mut Rt<Env>) -> Self {
+    pub fn signal(error_symbol: GcObj, data: GcObj, env: &mut Rt<Env>) -> Self {
         Self {
             backtrace: Vec::new(),
             error: ErrorType::Signal(env.set_exception(error_symbol, data)),
         }
     }
 
-    pub(crate) fn throw(tag: GcObj, data: GcObj, env: &mut Rt<Env>) -> Self {
+    pub fn throw(tag: GcObj, data: GcObj, env: &mut Rt<Env>) -> Self {
         Self { backtrace: Vec::new(), error: ErrorType::Throw(env.set_exception(tag, data)) }
     }
 
-    pub(crate) fn new(error: impl Into<Self>) -> Self {
+    pub fn new(error: impl Into<Self>) -> Self {
         error.into()
     }
 
-    pub(crate) fn with_trace(error: anyhow::Error, name: &str, args: &[Rt<GcObj>]) -> Self {
+    pub fn with_trace(error: anyhow::Error, name: &str, args: &[Rt<GcObj>]) -> Self {
         let display = display_slice(args);
         let trace = format!("{name} {display}").into_boxed_str();
         Self { backtrace: vec![trace], error: ErrorType::Err(error) }
     }
 
-    pub(crate) fn add_trace(mut self, name: &str, args: &[Rt<GcObj>]) -> Self {
+    pub fn add_trace(mut self, name: &str, args: &[Rt<GcObj>]) -> Self {
         let display = display_slice(args);
         self.backtrace.push(format!("{name} {display}").into_boxed_str());
         self
     }
 
-    pub(crate) fn print_backtrace(&self) {
+    pub fn print_backtrace(&self) {
         println!("BEGIN_BACKTRACE");
         for (i, x) in self.backtrace.iter().enumerate() {
             println!("{i}: {x}");
@@ -116,22 +116,11 @@ impl From<std::convert::Infallible> for EvalError {
     }
 }
 
-#[macro_export]
-macro_rules! error {
-    ($msg:literal $(,)?  $($args:expr),* $(,)?) => ($crate::core::error::EvalError::new_error(anyhow::anyhow!($msg, $($args),*)));
-    ($err:expr) => ($crate::core::error::EvalError::new($err));
-}
-
-#[macro_export]
-macro_rules! bail_err {
-    ($($args:expr),* $(,)?) => (return Err(error!($($args),*)));
-}
-
-pub(crate) type EvalResult<'ob> = Result<GcObj<'ob>, EvalError>;
+pub type EvalResult<'ob> = Result<GcObj<'ob>, EvalError>;
 
 /// The function or form has the wrong number of arguments.
 #[derive(Debug, PartialEq)]
-pub(crate) struct ArgError {
+pub struct ArgError {
     expect: u16,
     actual: u16,
     name: String,
@@ -147,13 +136,13 @@ impl Display for ArgError {
 }
 
 impl ArgError {
-    pub(crate) fn new(expect: u16, actual: u16, name: impl AsRef<str>) -> ArgError {
+    pub fn new(expect: u16, actual: u16, name: impl AsRef<str>) -> ArgError {
         Self { expect, actual, name: name.as_ref().to_owned() }
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub(crate) enum Type {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Type {
     Int,
     Char,
     Cons,
@@ -173,7 +162,7 @@ pub(crate) enum Type {
 
 /// Error provided if object was the wrong type
 #[derive(Debug, PartialEq)]
-pub(crate) struct TypeError {
+pub struct TypeError {
     expect: Type,
     actual: Type,
     print: String,
@@ -190,7 +179,7 @@ impl Display for TypeError {
 
 impl TypeError {
     /// Get a type error from an object.
-    pub(crate) fn new<'ob, T>(expect: Type, obj: T) -> Self
+    pub fn new<'ob, T>(expect: Type, obj: T) -> Self
     where
         T: Into<super::object::Object<'ob>>,
     {

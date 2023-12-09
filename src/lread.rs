@@ -1,14 +1,15 @@
 //! Loading elisp from files and strings.
-use crate::core::env::Symbol;
-use crate::core::env::{sym, Env};
-use crate::core::error::{Type, TypeError};
-use crate::core::gc::Context;
-use crate::core::gc::Rt;
-use crate::core::object::{nil, Gc, GcObj, LispString, Object, WithLifetime};
 use crate::reader;
 use crate::{interpreter, root};
 use anyhow::{anyhow, Context as _};
 use anyhow::{bail, ensure, Result};
+use rune_core::env::Symbol;
+use rune_core::env::{sym, Env};
+use rune_core::error::{Type, TypeError};
+use rune_core::gc::Context;
+use rune_core::gc::Rt;
+use rune_core::macros::cons;
+use rune_core::object::{nil, Gc, GcObj, LispString, Object, WithLifetime};
 use rune_macros::defun;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -168,7 +169,7 @@ pub(crate) fn load(
 
 #[defun]
 pub(crate) fn intern<'ob>(string: &str, cx: &'ob Context) -> Symbol<'ob> {
-    crate::core::env::intern(string, cx)
+    crate::init::intern(string, cx)
 }
 
 #[defun]
@@ -183,7 +184,7 @@ pub(crate) fn intern_soft(string: GcObj, obarray: Option<()>) -> Result<Symbol> 
             }
         }
         Object::String(string) => {
-            let map = crate::core::env::interned_symbols().lock().unwrap();
+            let map = crate::init::interned_symbols().lock().unwrap();
             match map.get(string.try_into()?) {
                 Some(sym) => Ok(unsafe { sym.with_lifetime() }),
                 None => Ok(sym::NIL),
@@ -193,21 +194,12 @@ pub(crate) fn intern_soft(string: GcObj, obarray: Option<()>) -> Result<Symbol> 
     }
 }
 
-defvar!(LEXICAL_BINDING, true);
-defvar!(CURRENT_LOAD_LIST);
-defvar!(LOAD_HISTORY);
-defvar!(LOAD_PATH, list![format!("{}/lisp", env!("CARGO_MANIFEST_DIR"))]);
-defvar!(LOAD_FILE_NAME);
-defvar!(BYTE_BOOLEAN_VARS);
-defvar!(MACROEXP__DYNVARS);
-defvar!(AFTER_LOAD_ALIST);
-
 #[cfg(test)]
 mod test {
 
     use super::*;
-    use crate::core::gc::RootSet;
     use crate::root;
+    use rune_core::gc::RootSet;
 
     #[test]
     #[allow(clippy::float_cmp)] // Bug in Clippy

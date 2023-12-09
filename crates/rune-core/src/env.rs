@@ -1,10 +1,9 @@
 #![allow(unstable_name_collisions)]
 use super::gc::{Block, Context, Rt};
+use super::hashmap::HashMap;
 use super::object::{CloneIn, Function, Gc, GcObj, LispBuffer, OpenBuffer, WithLifetime};
-use crate::hashmap::HashMap;
 use anyhow::{anyhow, Result};
 use rune_macros::Trace;
-use std::sync::Mutex;
 
 mod stack;
 mod symbol;
@@ -12,18 +11,18 @@ use stack::LispStack;
 pub(crate) use symbol::*;
 
 #[derive(Debug, Default, Trace)]
-pub(crate) struct Env {
-    pub(crate) vars: HashMap<Symbol<'static>, GcObj<'static>>,
-    pub(crate) props: HashMap<Symbol<'static>, Vec<(Symbol<'static>, GcObj<'static>)>>,
-    pub(crate) catch_stack: Vec<GcObj<'static>>,
+pub struct Env {
+    pub vars: HashMap<Symbol<'static>, GcObj<'static>>,
+    pub props: HashMap<Symbol<'static>, Vec<(Symbol<'static>, GcObj<'static>)>>,
+    pub catch_stack: Vec<GcObj<'static>>,
     exception: (GcObj<'static>, GcObj<'static>),
     #[no_trace]
     exception_id: u32,
     binding_stack: Vec<(Symbol<'static>, Option<GcObj<'static>>)>,
-    pub(crate) match_data: GcObj<'static>,
+    pub match_data: GcObj<'static>,
     #[no_trace]
-    pub(crate) current_buffer: Option<OpenBuffer<'static>>,
-    pub(crate) stack: LispStack,
+    pub current_buffer: Option<OpenBuffer<'static>>,
+    pub stack: LispStack,
 }
 
 // RootedEnv created by #[derive(Trace)]
@@ -37,7 +36,7 @@ impl RootedEnv {
         }
     }
 
-    pub(crate) fn set_prop(&mut self, symbol: Symbol, propname: Symbol, value: GcObj) {
+    pub fn set_prop(&mut self, symbol: Symbol, propname: Symbol, value: GcObj) {
         match self.props.get_mut(symbol) {
             Some(plist) => match plist.iter_mut().find(|x| x.0 == propname) {
                 Some(x) => x.1.set(value),
@@ -49,27 +48,24 @@ impl RootedEnv {
         }
     }
 
-    pub(in crate::core) fn set_exception(&mut self, tag: GcObj, data: GcObj) -> u32 {
+    pub fn set_exception(&mut self, tag: GcObj, data: GcObj) -> u32 {
         self.exception.0.set(tag);
         self.exception.1.set(data);
         self.exception_id += 1;
         self.exception_id
     }
 
-    pub(crate) fn get_exception(
-        &self,
-        id: u32,
-    ) -> Option<(&Rt<GcObj<'static>>, &Rt<GcObj<'static>>)> {
+    pub fn get_exception(&self, id: u32) -> Option<(&Rt<GcObj<'static>>, &Rt<GcObj<'static>>)> {
         (id == self.exception_id).then_some((&self.exception.0, &self.exception.1))
     }
 
-    pub(crate) fn varbind(&mut self, var: Symbol, value: GcObj, cx: &Context) {
+    pub fn varbind(&mut self, var: Symbol, value: GcObj, cx: &Context) {
         let prev_value = self.vars.get(var).map(|x| x.bind(cx));
         self.binding_stack.push((var, prev_value));
         self.vars.insert(var, value);
     }
 
-    pub(crate) fn unbind(&mut self, count: u16, cx: &Context) {
+    pub fn unbind(&mut self, count: u16, cx: &Context) {
         for _ in 0..count {
             match self.binding_stack.bind_mut(cx).pop() {
                 Some((sym, val)) => match val {
@@ -81,7 +77,7 @@ impl RootedEnv {
         }
     }
 
-    pub(crate) fn defvar(&mut self, var: Symbol, value: GcObj) -> Result<()> {
+    pub fn defvar(&mut self, var: Symbol, value: GcObj) -> Result<()> {
         // TOOD: Handle `eval-sexp` on defvar, which should always update the
         // value
         if self.vars.get(var).is_none() {
@@ -99,7 +95,7 @@ impl RootedEnv {
         Ok(())
     }
 
-    pub(crate) fn set_buffer(&mut self, buffer: &LispBuffer) -> Result<()> {
+    pub fn set_buffer(&mut self, buffer: &LispBuffer) -> Result<()> {
         if let Some(current) = &self.current_buffer {
             if buffer == current {
                 return Ok(());
@@ -112,7 +108,7 @@ impl RootedEnv {
         Ok(())
     }
 
-    pub(crate) fn with_buffer<T>(
+    pub fn with_buffer<T>(
         &self,
         buffer: Option<&LispBuffer>,
         func: impl Fn(&OpenBuffer) -> T,
@@ -133,7 +129,7 @@ impl RootedEnv {
         }
     }
 
-    pub(crate) fn with_buffer_mut<T>(
+    pub fn with_buffer_mut<T>(
         &mut self,
         buffer: Option<&LispBuffer>,
         func: impl Fn(&mut OpenBuffer) -> T,
@@ -155,9 +151,9 @@ impl RootedEnv {
     }
 }
 
-pub(crate) struct ObjectMap {
-    map: SymbolMap,
-    block: Block<true>,
+pub struct ObjectMap {
+    pub map: SymbolMap,
+    pub block: Block<true>,
 }
 
 /// Box is marked as unique. However we are freely sharing the pointer to this
@@ -193,12 +189,12 @@ impl Drop for SymbolBox {
     }
 }
 
-struct SymbolMap {
+pub struct SymbolMap {
     map: HashMap<&'static str, SymbolBox>,
 }
 
 impl SymbolMap {
-    fn with_capacity(cap: usize) -> Self {
+    pub fn with_capacity(cap: usize) -> Self {
         Self {
             map: HashMap::with_capacity_and_hasher(cap, std::hash::BuildHasherDefault::default()),
         }
@@ -237,7 +233,7 @@ impl SymbolMap {
         unsafe { Symbol::new(&*sym) }
     }
 
-    fn pre_init(&mut self, sym: Symbol<'static>) {
+    pub fn pre_init(&mut self, sym: Symbol<'static>) {
         use std::collections::hash_map::Entry;
         let name = sym.get().name();
         let entry = self.map.entry(name);
@@ -247,11 +243,11 @@ impl SymbolMap {
 }
 
 impl ObjectMap {
-    pub(crate) fn intern<'ob>(&mut self, name: &str, cx: &'ob Context) -> Symbol<'ob> {
+    pub fn intern<'ob>(&mut self, name: &str, cx: &'ob Context) -> Symbol<'ob> {
         self.map.intern(name, cx)
     }
 
-    pub(crate) fn set_func(&self, symbol: Symbol, func: Gc<Function>) -> Result<()> {
+    pub fn set_func(&self, symbol: Symbol, func: Gc<Function>) -> Result<()> {
         let new_func = func.clone_in(&self.block);
         self.block.uninterned_symbol_map.clear();
         #[cfg(miri)]
@@ -262,114 +258,24 @@ impl ObjectMap {
         unsafe { symbol.set_func(new_func) }
     }
 
-    pub(crate) fn create_buffer(&self, name: &str) -> &LispBuffer {
+    pub fn create_buffer(&self, name: &str) -> &LispBuffer {
         LispBuffer::create(name.to_owned(), &self.block)
     }
 
-    pub(crate) fn get(&self, name: &str) -> Option<Symbol> {
+    pub fn get(&self, name: &str) -> Option<Symbol> {
         self.map.get(name)
     }
 }
 
-// This file includes all symbol definitions. Generated by build.rs
-include!(concat!(env!("OUT_DIR"), "/sym.rs"));
-
-/// Intern a new symbol based on `name`
-pub(crate) fn intern<'ob>(name: &str, cx: &'ob Context) -> Symbol<'ob> {
-    interned_symbols().lock().unwrap().intern(name, cx)
-}
-
 #[cfg(test)]
 mod test {
-    use crate::root;
-
     use super::*;
 
-    use super::super::gc::{Context, RootSet};
     use std::mem::size_of;
 
     #[test]
     fn size() {
         assert_eq!(size_of::<isize>(), size_of::<Symbol>());
         assert_eq!(size_of::<isize>(), size_of::<Gc<Function>>());
-    }
-
-    unsafe fn fix_lifetime(inner: Symbol) -> Symbol<'static> {
-        std::mem::transmute::<Symbol, Symbol<'static>>(inner)
-    }
-
-    #[test]
-    fn init() {
-        let roots = &RootSet::default();
-        let cx = &Context::new(roots);
-        intern("foo", cx);
-    }
-
-    #[test]
-    fn symbol_func() {
-        let roots = &RootSet::default();
-        let cx = &Context::new(roots);
-        sym::init_symbols();
-        let inner = SymbolCell::new("foo");
-        let sym = unsafe { fix_lifetime(Symbol::new(&inner)) };
-        assert_eq!("foo", sym.name());
-        assert!(sym.func(cx).is_none());
-        let func1 = cons!(1; cx);
-        unsafe {
-            sym.set_func(func1.try_into().unwrap()).unwrap();
-        }
-        let cell1 = sym.func(cx).unwrap();
-        let Function::Cons(before) = cell1.untag() else {
-            unreachable!("Type should be a lisp function")
-        };
-        assert_eq!(before.car(), 1);
-        let func2 = cons!(2; cx);
-        unsafe {
-            sym.set_func(func2.try_into().unwrap()).unwrap();
-        }
-        let cell2 = sym.func(cx).unwrap();
-        let Function::Cons(after) = cell2.untag() else {
-            unreachable!("Type should be a lisp function")
-        };
-        assert_eq!(after.car(), 2);
-        assert_eq!(before.car(), 1);
-
-        unsafe {
-            sym.set_func(sym::NIL.into()).unwrap();
-        }
-        assert!(!sym.has_func());
-    }
-
-    #[test]
-    fn test_mutability() {
-        let roots = &RootSet::default();
-        let cx = &Context::new(roots);
-        let cons = list!(1, 2, 3; cx);
-        assert_eq!(cons, list!(1, 2, 3; cx));
-        // is mutable
-        if let crate::core::object::Object::Cons(cons) = cons.untag() {
-            cons.set_car(4.into()).unwrap();
-        } else {
-            unreachable!();
-        }
-        assert_eq!(cons, list!(4, 2, 3; cx));
-        let sym = intern("cons-test", cx);
-        crate::data::fset(sym, cons).unwrap();
-        // is not mutable
-        if let Function::Cons(cons) = sym.func(cx).unwrap().untag() {
-            assert!(cons.set_car(5.into()).is_err());
-            let obj: GcObj = cons.into();
-            assert_eq!(obj, list!(4, 2, 3; cx));
-        } else {
-            unreachable!();
-        }
-    }
-
-    #[test]
-    fn test_init_variables() {
-        let roots = &RootSet::default();
-        let cx = &Context::new(roots);
-        root!(env, Env::default(), cx);
-        init_variables(cx, env);
     }
 }

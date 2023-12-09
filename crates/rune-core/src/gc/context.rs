@@ -1,7 +1,7 @@
 use super::OwnedObject;
 use super::Trace;
-use crate::core::env::UninternedSymbolMap;
-use crate::core::object::{Gc, GcObj, IntoObject, WithLifetime};
+use crate::env::UninternedSymbolMap;
+use crate::object::{Gc, GcObj, IntoObject, WithLifetime};
 use std::cell::{Cell, RefCell};
 use std::fmt::Debug;
 use std::ops::Deref;
@@ -10,22 +10,22 @@ use std::sync::atomic::AtomicBool;
 /// A global store of all gc roots. This struct should be passed to the [Context]
 /// when it is created.
 #[derive(Default, Debug)]
-pub(crate) struct RootSet {
+pub struct RootSet {
     pub(super) roots: RefCell<Vec<*const dyn Trace>>,
 }
 
 /// A block of allocations. This type should be owned by [Context] and not used
 /// directly.
 #[derive(Default)]
-pub(crate) struct Block<const CONST: bool> {
+pub struct Block<const CONST: bool> {
     pub(super) objects: RefCell<Vec<OwnedObject>>,
-    pub(in crate::core) uninterned_symbol_map: UninternedSymbolMap,
+    pub(crate) uninterned_symbol_map: UninternedSymbolMap,
 }
 
 /// Owns all allocations and creates objects. All objects have
 /// a lifetime tied to the borrow of their `Context`. When the
 /// `Context` goes out of scope, no objects should be accessible.
-pub(crate) struct Context<'rt> {
+pub struct Context<'rt> {
     pub(crate) block: Block<false>,
     root_set: &'rt RootSet,
     prev_obj_count: usize,
@@ -42,17 +42,17 @@ impl<'rt> Drop for Context<'rt> {
 }
 
 #[derive(Debug, Default, Eq)]
-pub(in crate::core) struct GcMark(Cell<bool>);
+pub(crate) struct GcMark(Cell<bool>);
 
 impl Trace for GcMark {
-    fn trace(&self, _: &mut Vec<crate::core::object::RawObj>) {
+    fn trace(&self, _: &mut Vec<crate::object::RawObj>) {
         self.0.set(true);
     }
 }
 
 /// This trait represents a type that is managed by the Garbage collector and
 /// therefore has a markbit to preserve it.
-pub(in crate::core) trait GcManaged {
+pub(crate) trait GcManaged {
     fn get_mark(&self) -> &GcMark;
 
     fn mark(&self) {
@@ -82,7 +82,7 @@ thread_local! {
 static GLOBAL_CHECK: AtomicBool = AtomicBool::new(false);
 
 impl Block<true> {
-    pub(crate) fn new_global() -> Self {
+    pub fn new_global() -> Self {
         use std::sync::atomic::Ordering::SeqCst as Rel;
         assert!(GLOBAL_CHECK.compare_exchange(false, true, Rel, Rel).is_ok());
         Self::default()
@@ -90,16 +90,16 @@ impl Block<true> {
 }
 
 impl Block<false> {
-    pub(crate) fn new_local() -> Self {
+    pub fn new_local() -> Self {
         Self::assert_unique();
         Self::default()
     }
 
-    pub(crate) fn new_local_unchecked() -> Self {
+    pub fn new_local_unchecked() -> Self {
         Self::default()
     }
 
-    pub(crate) fn assert_unique() {
+    pub fn assert_unique() {
         SINGLETON_CHECK.with(|x| {
             assert!(!x.get(), "There was already and active context when this context was created");
             x.set(true);
@@ -108,7 +108,7 @@ impl Block<false> {
 }
 
 impl<const CONST: bool> Block<CONST> {
-    pub(crate) fn add<'ob, T, Tx>(&'ob self, obj: T) -> GcObj
+    pub fn add<'ob, T, Tx>(&'ob self, obj: T) -> GcObj
     where
         T: IntoObject<Out<'ob> = Tx>,
         Gc<Tx>: Into<GcObj<'ob>>,
@@ -116,7 +116,7 @@ impl<const CONST: bool> Block<CONST> {
         obj.into_obj(self).into()
     }
 
-    pub(crate) fn add_as<'ob, T, Tx, V>(&'ob self, obj: T) -> Gc<V>
+    pub fn add_as<'ob, T, Tx, V>(&'ob self, obj: T) -> Gc<V>
     where
         T: IntoObject<Out<'ob> = Tx>,
         Gc<Tx>: Into<Gc<V>>,
@@ -130,27 +130,27 @@ impl<const CONST: bool> Block<CONST> {
 }
 
 impl<'ob, 'rt> Context<'rt> {
-    pub(crate) fn new(roots: &'rt RootSet) -> Self {
+    pub fn new(roots: &'rt RootSet) -> Self {
         Context { block: Block::new_local(), root_set: roots, prev_obj_count: 0 }
     }
 
-    pub(crate) fn from_block(block: Block<false>, roots: &'rt RootSet) -> Self {
+    pub fn from_block(block: Block<false>, roots: &'rt RootSet) -> Self {
         Block::assert_unique();
         Context { block, root_set: roots, prev_obj_count: 0 }
     }
 
-    pub(crate) fn bind<T>(&'ob self, obj: T) -> <T as WithLifetime>::Out
+    pub fn bind<T>(&'ob self, obj: T) -> <T as WithLifetime>::Out
     where
         T: WithLifetime<'ob>,
     {
         unsafe { obj.with_lifetime() }
     }
 
-    pub(crate) fn get_root_set(&'ob self) -> &'rt RootSet {
+    pub fn get_root_set(&'ob self) -> &'rt RootSet {
         self.root_set
     }
 
-    pub(crate) fn garbage_collect(&mut self, force: bool) {
+    pub fn garbage_collect(&mut self, force: bool) {
         let mut objects = self.block.objects.borrow_mut();
         if cfg!(not(test))
             && !force
@@ -240,53 +240,11 @@ impl<const CONST: bool> Drop for Block<CONST> {
     }
 }
 
-// helper macro for the `rebind!` macro
-macro_rules! last {
-    ($arg:expr) => { $arg };
-    ($head:expr, $($rest:expr),+) => {
-        last!($($rest),+)
-    };
-}
-
-/// Rebinds an object so that it is bound to an immutable borrow of [Context]
-/// instead of a mutable borrow. This can release the mutable borrow and allow
-/// Context to be used for other things.
-///
-/// # Examples
-///
-/// ```
-/// let object = rebind!(func1(&mut cx));
-/// func2(&mut cx);
-/// let object2 = object;
-/// ```
-///
-/// wthout this macro the above code would not compile because `object` can't
-/// outlive the call to func2.
-#[macro_export]
-macro_rules! rebind {
-    // rebind!(func(x, cx)?)
-    ($($path:ident).*($($arg:expr),+)$($x:tt)?) => {{
-        rebind!($($path).*($($arg),+)$($x)?, last!($($arg),+))
-    }};
-    // rebind!(func(x, cx).unwrap())
-    ($($path:ident).*($($arg:expr),+).unwrap()) => {{
-        rebind!($($path).*($($arg),+).unwrap(), last!($($arg),+))
-    }};
-    // rebind!(x, cx)
-    ($value:expr, $cx:expr) => {{
-        // Eval value outside the unsafe block
-        let unbound = match $value {
-            v => unsafe { $crate::core::object::WithLifetime::<'static>::with_lifetime(v) }
-        };
-        $cx.bind(unbound)
-    }};
-}
-
 #[cfg(test)]
 mod test {
-    use crate::root;
-
     use super::*;
+    use crate::macros::{list, rebind, root};
+
     fn bind_to_mut<'ob>(cx: &'ob mut Context) -> GcObj<'ob> {
         cx.add("invariant")
     }

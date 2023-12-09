@@ -1,10 +1,10 @@
 //! Buffer editing utilities.
-use crate::core::{
+use anyhow::{bail, ensure, Result};
+use rune_core::{
     env::Env,
     gc::Rt,
     object::{GcObj, Object},
 };
-use anyhow::{bail, ensure, Result};
 use rune_macros::defun;
 use std::{fmt::Write as _, io::Write};
 
@@ -15,9 +15,6 @@ fn message(format_string: &str, args: &[GcObj]) -> Result<String> {
     std::io::stdout().flush()?;
     Ok(message)
 }
-
-defvar!(MESSAGE_NAME);
-defvar!(MESSAGE_TYPE, "new message");
 
 #[defun]
 fn format(string: &str, objects: &[GcObj]) -> Result<String> {
@@ -152,12 +149,10 @@ fn system_name() -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::core::object::nil;
-    use crate::{
-        buffer::{get_buffer_create, set_buffer},
-        core::gc::{Context, RootSet},
-        root,
-    };
+    use crate::buffer::{get_buffer_create, set_buffer};
+    use rune_core::gc::{Context, RootSet};
+    use rune_core::macros::root;
+    use rune_core::object::nil;
 
     use super::*;
 
@@ -168,7 +163,7 @@ mod test {
         assert_eq!(&format("%%", &[]).unwrap(), "%");
         assert_eq!(&format("_%%_", &[]).unwrap(), "_%_");
         assert_eq!(&format("foo-%s %s", &[3.into(), 4.into()]).unwrap(), "foo-3 4");
-        let sym = crate::core::env::sym::FUNCTION.into();
+        let sym = rune_core::env::sym::FUNCTION.into();
         assert_eq!(&format("%s", &[sym]).unwrap(), "function");
 
         assert!(&format("%s", &[]).is_err());

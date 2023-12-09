@@ -1,23 +1,24 @@
 //! General purpose lisp functions
-use crate::{
-    core::{
-        cons::Cons,
-        env::{sym, Env, Symbol},
-        error::{Type, TypeError},
-        gc::{Context, IntoRoot, Rt},
-        object::{
-            nil, Function, Gc, GcObj, HashTable, HashTableView, IntoObject, LispHashTable,
-            LispString, LispVec, List, Object,
-        },
+use rune_core::{
+    cons::Cons,
+    env::{sym, Env, Symbol},
+    error::{Type, TypeError},
+    gc::{Context, IntoRoot, Rt},
+    macros::{cons, list, rebind, root, rooted_iter},
+    object::{
+        nil, Function, Gc, GcObj, HashTable, HashTableView, IntoObject, LispHashTable, LispString,
+        LispVec, List, Object,
     },
-    data::aref,
 };
-use crate::{root, rooted_iter};
+
 use anyhow::{bail, Result};
 use bstr::ByteSlice;
 use fallible_iterator::FallibleIterator;
 use fallible_streaming_iterator::FallibleStreamingIterator;
 use rune_macros::defun;
+
+use crate::interpreter::CallFunction;
+use crate::{data::aref, init::defun};
 
 #[defun]
 fn identity(arg: GcObj) -> GcObj {
@@ -613,9 +614,6 @@ pub(crate) fn elt(sequence: GcObj, n: usize) -> Result<GcObj> {
 // HashTable //
 ///////////////
 
-defsym!(KW_TEST);
-defsym!(KW_DOCUMENTATION);
-
 #[defun]
 pub(crate) fn make_hash_table<'ob>(
     keyword_args: &[GcObj<'ob>],
@@ -626,7 +624,7 @@ pub(crate) fn make_hash_table<'ob>(
         let Some(val) = keyword_args.get((i * 2) + 1) else {
             bail!("Missing keyword value for :test")
         };
-        if *val != sym::EQ && *val != sym::EQUAL {
+        if *val != defun::EQ && *val != defun::EQUAL {
             // TODO: we are currently only using `equal', but eq should be okay
             bail!("only `eq' and `equal' keywords support for make-hash-table :test. Found {val}");
         }
@@ -761,13 +759,6 @@ fn substring(string: &str, from: Option<usize>, to: Option<usize>) -> Result<Str
     Ok(new_string.to_owned())
 }
 
-defsym!(MD5);
-defsym!(SHA1);
-defsym!(SHA224);
-defsym!(SHA256);
-defsym!(SHA384);
-defsym!(SHA512);
-
 #[defun]
 fn secure_hash_algorithms<'ob>(cx: &'ob Context) -> GcObj<'ob> {
     // https://crates.io/crates/md-5
@@ -796,7 +787,8 @@ fn disable_debug() -> bool {
 
 #[cfg(test)]
 mod test {
-    use crate::core::{gc::RootSet, object::qtrue};
+    use rune_core::macros::rebind;
+    use rune_core::{gc::RootSet, object::qtrue};
 
     use super::*;
 
@@ -915,7 +907,7 @@ mod test {
         table.insert(2.into(), 8.into());
         table.insert(3.into(), 10.into());
         let table = table.into_obj(cx);
-        let func = sym::EQ.func(cx).unwrap();
+        let func = defun::EQ.func(cx).unwrap();
         root!(env, Env::default(), cx);
         root!(table, cx);
         root!(func, cx);
@@ -930,7 +922,7 @@ mod test {
         let roots = &RootSet::default();
         let cx = &mut Context::new(roots);
         root!(env, Env::default(), cx);
-        let func = sym::LESS_THAN.func(cx).unwrap();
+        let func = defun::LESS_THAN.func(cx).unwrap();
         root!(func, cx);
         {
             root!(list, List::empty(), cx);
@@ -969,7 +961,7 @@ mod test {
             assert_eq!(res, list![1, 2, 3; cx]);
         }
         {
-            let func = sym::GREATER_THAN.func(cx).unwrap();
+            let func = defun::GREATER_THAN.func(cx).unwrap();
             let list: Gc<List> = list![1, 2, 3, 4, 5; cx].try_into().unwrap();
             root!(list, cx);
             root!(func, cx);

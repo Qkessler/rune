@@ -1,7 +1,7 @@
 use super::super::object::RawObj;
 use crate::hashmap::{HashMap, HashSet};
 
-pub(crate) trait Trace {
+pub trait Trace {
     fn trace(&self, stack: &mut Vec<RawObj>);
 }
 
@@ -85,7 +85,7 @@ impl<T: Trace> Trace for Option<T> {
 mod test {
     use super::super::super::gc::{Context, RootSet};
     use super::*;
-    use crate::root;
+    use crate::macros::root;
 
     struct Foo(u64);
     impl Trace for Foo {

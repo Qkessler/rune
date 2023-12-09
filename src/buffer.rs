@@ -1,14 +1,13 @@
 //! Buffer operations.
-use crate::{
-    core::{
-        env::{interned_symbols, Env},
-        error::{Type, TypeError},
-        gc::{Context, Rt},
-        object::{nil, Gc, GcObj, LispBuffer, Object},
-    },
-    hashmap::HashMap,
-};
+use crate::init::interned_symbols;
 use anyhow::{bail, Result};
+use rune_core::{
+    env::Env,
+    error::{Type, TypeError},
+    gc::{Context, Rt},
+    hashmap::HashMap,
+    object::{nil, Gc, GcObj, LispBuffer, Object},
+};
 use rune_macros::defun;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -16,7 +15,7 @@ use std::sync::OnceLock;
 // static hashmap containing all the buffers
 static BUFFERS: OnceLock<Mutex<HashMap<String, &'static LispBuffer>>> = OnceLock::new();
 
-/// Helper function to avoid calling `get_or_init` on each of the calls to `lock()` on the Mutex.
+/// Helper function to avoid calling [`OnceLock::get_or_init`] on each of the calls to [`Mutex::lock`] on the Mutex.
 ///
 /// TODO: Use `LazyLock`: <https://github.com/CeleritasCelery/rune/issues/34>
 fn buffers() -> &'static Mutex<HashMap<String, &'static LispBuffer>> {
@@ -167,20 +166,11 @@ fn kill_buffer(buffer_or_name: Option<GcObj>, cx: &Context, env: &mut Rt<Env>) -
 }
 
 // TODO: buffer local
-defvar!(FILL_COLUMN, 70);
-defvar!(INDENT_TABS_MODE);
-defvar!(LEFT_MARGIN, 0);
-defvar!(INHIBIT_COMPACTING_FONT_CACHES);
-defvar!(NO_UPDATE_AUTOLOADS);
-defvar!(TAB_WIDTH, 8);
-defvar!(TRUNCATE_LINES);
-defvar!(WORD_WRAP);
-defvar!(BIDI_DISPLAY_REORDERING);
 
 #[cfg(test)]
 mod test {
-    use crate::core::gc::RootSet;
-    use crate::core::object::nil;
+    use rune_core::gc::RootSet;
+    use rune_core::object::nil;
 
     use super::*;
 

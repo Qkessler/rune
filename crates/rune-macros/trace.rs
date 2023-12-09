@@ -4,7 +4,7 @@ use syn::{punctuated::Punctuated, Token};
 
 #[allow(clippy::too_many_lines)]
 pub(crate) fn expand(orig: &syn::DeriveInput) -> TokenStream {
-    let rt = quote!(crate::core::gc::Rt);
+    let rt = quote!(rune_core::gc::Rt);
     let vis = &orig.vis;
     let orig_name = &orig.ident;
     let rooted_name = format_ident!("Rooted{orig_name}");
@@ -44,9 +44,8 @@ pub(crate) fn expand(orig: &syn::DeriveInput) -> TokenStream {
                             mark_fields.extend(quote! {let _ = &self.#ident;});
                         } else {
                             new_fields.extend(quote! {#vis #ident: #rt<#ty>,});
-                            mark_fields.extend(
-                                quote! {crate::core::gc::Trace::trace(&self.#ident, stack);},
-                            );
+                            mark_fields
+                                .extend(quote! {rune_core::gc::Trace::trace(&self.#ident, stack);});
                         }
                     }
                     new_fields = quote! {{#new_fields}};
@@ -66,7 +65,7 @@ pub(crate) fn expand(orig: &syn::DeriveInput) -> TokenStream {
                         } else {
                             new_fields.extend(quote! {#vis #rt<#ty>,});
                             mark_fields
-                                .extend(quote! {crate::core::gc::Trace::trace(&self.#idx, stack);});
+                                .extend(quote! {rune_core::gc::Trace::trace(&self.#idx, stack);});
                         }
                     }
                     new_fields = quote! {(#new_fields);};
@@ -75,8 +74,8 @@ pub(crate) fn expand(orig: &syn::DeriveInput) -> TokenStream {
             }
             let test_mod = format_ident!("derive_trace_{orig_name}");
             quote! {
-                impl crate::core::gc::Trace for #orig_name #static_generics {
-                    fn trace(&self, stack: &mut Vec<crate::core::object::RawObj>) {
+                impl rune_core::gc::Trace for #orig_name #static_generics {
+                    fn trace(&self, stack: &mut Vec<rune_core::object::RawObj>) {
                         #mark_fields
                     }
                 }
@@ -107,14 +106,14 @@ pub(crate) fn expand(orig: &syn::DeriveInput) -> TokenStream {
     quote! {
         #derive
 
-        impl crate::core::gc::RootedDeref for #orig_name #static_generics {
+        impl rune_core::gc::RootedDeref for #orig_name #static_generics {
             type Target = #rooted_name #static_generics;
 
-            fn rooted_deref(rooted: &crate::core::gc::Rt<Self>) -> &Self::Target {
-                unsafe { &*(rooted as *const crate::core::gc::Rt<Self>).cast::<Self::Target>() }            }
+            fn rooted_deref(rooted: &rune_core::gc::Rt<Self>) -> &Self::Target {
+                unsafe { &*(rooted as *const rune_core::gc::Rt<Self>).cast::<Self::Target>() }            }
 
-            fn rooted_derefmut(rooted: &mut crate::core::gc::Rt<Self>) -> &mut Self::Target {
-                unsafe { &mut *(rooted as *mut crate::core::gc::Rt<Self>).cast::<Self::Target>() }
+            fn rooted_derefmut(rooted: &mut rune_core::gc::Rt<Self>) -> &mut Self::Target {
+                unsafe { &mut *(rooted as *mut rune_core::gc::Rt<Self>).cast::<Self::Target>() }
             }
         }
     }

@@ -34,22 +34,22 @@ pub(crate) fn expand(function: Function, spec: Spec) -> TokenStream {
         // return val is bound to the mutable borrow, meaning we can use them
         // both in the into_obj function. Similar to the rebind! macro.
         quote! {
-            let ptr = cx as *mut crate::core::gc::Context;
+            let ptr = cx as *mut rune_core::gc::Context;
             let val = #subr(#(#arg_conversion),*)#err;
-            let cx: &'ob mut crate::core::gc::Context = unsafe {&mut *ptr};
-            Ok(crate::core::object::IntoObject::into_obj(val, cx).into())
+            let cx: &'ob mut rune_core::gc::Context = unsafe {&mut *ptr};
+            Ok(rune_core::object::IntoObject::into_obj(val, cx).into())
         };
 
     quote! {
         #[automatically_derived]
         #[doc(hidden)]
         fn #func_name<'ob, 'id>(
-            args: &[crate::core::gc::Rt<crate::core::object::GcObj<'static>>],
-            env: &mut crate::core::gc::Rt<crate::core::env::Env>,
-            cx: &'ob mut crate::core::gc::Context,
-        ) -> anyhow::Result<crate::core::object::GcObj<'ob>> {
+            args: &[crate::gc::Rt<crate::object::GcObj<'static>>],
+            env: &mut crate::gc::Rt<crate::env::Env>,
+            cx: &'ob mut crate::gc::Context,
+        ) -> anyhow::Result<crate::object::GcObj<'ob>> {
             if args.len() < #required as usize {
-                return Err(crate::core::error::ArgError::new(#required, args.len() as u16, #lisp_name).into());
+                return Err(crate::error::ArgError::new(#required, args.len() as u16, #lisp_name).into());
             }
             #subr_call
         }
@@ -57,10 +57,10 @@ pub(crate) fn expand(function: Function, spec: Spec) -> TokenStream {
         #[automatically_derived]
         #[doc(hidden)]
         #[allow(non_upper_case_globals)]
-        pub(crate) const #struct_name: crate::core::object::SubrFn = crate::core::object::SubrFn {
+        pub(crate) const #struct_name: rune_core::object::SubrFn = rune_core::object::SubrFn {
             name: #lisp_name,
             subr: #func_name,
-            args: crate::core::object::FnArgs {
+            args: rune_core::object::FnArgs {
                 required: #required,
                 optional: #optional,
                 rest: #rest,
@@ -82,11 +82,11 @@ fn get_arg_conversion(args: &[ArgType]) -> Vec<TokenStream> {
             // Rt<Gc<..>>
             ArgType::Rt(gc) => match gc {
                 Gc::Obj => quote! {&args[#idx]},
-                Gc::Other => quote! {crate::core::gc::Rt::try_into(&args[#idx])?},
+                Gc::Other => quote! {rune_core::gc::Rt::try_into(&args[#idx])?},
             },
             // Gc<..>
             ArgType::Gc(gc) => {
-                let bind = quote! {crate::core::gc::Rt::bind(&args[#idx], cx)};
+                let bind = quote! {rune_core::gc::Rt::bind(&args[#idx], cx)};
                 match gc {
                     Gc::Obj => bind,
                     Gc::Other => quote! { std::convert::TryFrom::try_from(#bind)? },
@@ -94,11 +94,10 @@ fn get_arg_conversion(args: &[ArgType]) -> Vec<TokenStream> {
             }
             // &[Gc<..>]
             ArgType::Slice(gc) => {
-                let bind =
-                    quote! {crate::core::gc::Rt::bind_slice(&args[(#idx).min(args.len())..], cx)};
+                let bind = quote! {crate::gc::Rt::bind_slice(&args[(#idx).min(args.len())..], cx)};
                 match gc {
                     Gc::Obj => bind,
-                    Gc::Other => quote! {crate::core::object::try_from_slice(#bind)?},
+                    Gc::Other => quote! {rune_core::object::try_from_slice(#bind)?},
                 }
             }
             // &[Rt<Gc<..>>]
@@ -110,17 +109,17 @@ fn get_arg_conversion(args: &[ArgType]) -> Vec<TokenStream> {
             ArgType::OptionRt => {
                 quote! {
                     match args.get(#idx) {
-                        Some(x) => crate::core::gc::Rt::try_as_option(x)?,
+                        Some(x) => crate::gc::Rt::try_as_option(x)?,
                         None => None,
                     }
                 }
             }
             // Option<T>
             ArgType::Option => {
-                let bind = quote! {crate::core::gc::Rt::bind(x, cx)};
+                let bind = quote! {crate::gc::Rt::bind(x, cx)};
                 quote! {
                     match args.get(#idx) {
-                        Some(x) => crate::core::object::Gc::try_from_option(#bind)?,
+                        Some(x) => crate::object::Gc::try_from_option(#bind)?,
                         None => None,
                     }
                 }
@@ -129,7 +128,7 @@ fn get_arg_conversion(args: &[ArgType]) -> Vec<TokenStream> {
                 if is_mut {
                     quote! { std::convert::TryFrom::try_from(&args[#idx])? }
                 } else {
-                    let bind = quote! {crate::core::gc::Rt::bind(&args[#idx], cx)};
+                    let bind = quote! {rune_core::gc::Rt::bind(&args[#idx], cx)};
                     quote! { std::convert::TryFrom::try_from(#bind)? }
                 }
             }

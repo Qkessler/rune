@@ -152,8 +152,8 @@ fn main() {
 #[allow(non_snake_case)]
 #[allow(dead_code)]
 pub(crate) mod sym {{
-use crate::core::env::SymbolCell;
-use crate::core::env::Symbol;
+use rune_core::env::SymbolCell;
+use rune_core::env::Symbol;
 
 pub(super) static BUILTIN_SYMBOLS: [SymbolCell; {symbol_len}] = [
     SymbolCell::new_const(\"nil\"),
@@ -199,7 +199,7 @@ pub(super) static BUILTIN_SYMBOLS: [SymbolCell; {symbol_len}] = [
 
     // all SubrFn
     let subr_len = all_defun.len();
-    writeln!(f, "static SUBR_DEFS: [&crate::core::object::SubrFn; {subr_len}] = [",).unwrap();
+    writeln!(f, "static SUBR_DEFS: [&rune_core::object::SubrFn; {subr_len}] = [",).unwrap();
     for (subr_name, _, _) in &all_defun {
         writeln!(f, "    &{subr_name},",).unwrap();
     }
@@ -250,10 +250,10 @@ pub(crate) fn interned_symbols() -> &'static Mutex<ObjectMap> {{
         "
 #[allow(unused_qualifications)]
 pub(crate) fn init_variables(
-    cx: &crate::core::gc::Context,
-    env: &mut crate::core::gc::Rt<crate::core::env::Env>,
+    cx: &rune_core::gc::Context,
+    env: &mut rune_core::gc::Rt<rune_core::env::Env>,
 ) {{
-use crate::core::object::Object;
+use rune_core::object::Object;
 "
     )
     .unwrap();

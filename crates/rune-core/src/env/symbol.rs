@@ -1,10 +1,10 @@
 #![allow(unstable_name_collisions)]
 use super::super::gc::Trace;
 use super::super::object::{Function, Gc, WithLifetime};
-use crate::core::env::sym::BUILTIN_SYMBOLS;
-use crate::core::gc::GcManaged;
-use crate::core::object::{CloneIn, IntoObject, TagType};
-use crate::core::{gc::Context, object::RawObj};
+use crate::env::sym::BUILTIN_SYMBOLS;
+use crate::gc::GcManaged;
+use crate::object::{CloneIn, IntoObject, TagType};
+use crate::{gc::Context, object::RawObj};
 use anyhow::{bail, Result};
 use sptr::Strict;
 use std::fmt;
@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 /// In order to garbage collect the function we need to
 /// halt all running threads. This has not been implemented
 /// yet.
-pub(crate) struct SymbolCell {
+pub struct SymbolCell {
     name: SymbolName,
     // Global symbols are always immutable, so we mark them so they are not
     // traced by the GC.
@@ -40,7 +40,7 @@ enum SymbolName {
 }
 
 #[derive(PartialEq, Eq, Copy, Clone)]
-pub(crate) struct Symbol<'a> {
+pub struct Symbol<'a> {
     // Offset from the start of the symbol table
     data: *const SymbolCell,
     marker: PhantomData<&'a SymbolCell>,
@@ -55,7 +55,7 @@ impl std::ops::Deref for Symbol<'_> {
 }
 
 impl<'a> Symbol<'a> {
-    pub(crate) fn get(self) -> &'a SymbolCell {
+    pub fn get(self) -> &'a SymbolCell {
         unsafe {
             let ptr = self.data;
             let ptr = ptr.map_addr(|x| x.wrapping_add(BUILTIN_SYMBOLS.as_ptr().addr()));
@@ -68,37 +68,37 @@ impl<'a> Symbol<'a> {
         }
     }
 
-    pub(in crate::core) fn as_ptr(self) -> *const u8 {
+    pub fn as_ptr(self) -> *const u8 {
         self.data.cast()
     }
 
-    pub(in crate::core) fn new(data: &'a SymbolCell) -> Self {
+    pub fn new(data: &'a SymbolCell) -> Self {
         Self::new_runtime(data)
     }
 
-    pub(in crate::core) unsafe fn from_offset_ptr(ptr: *const u8) -> Self {
+    pub unsafe fn from_offset_ptr(ptr: *const u8) -> Self {
         Self { data: ptr.cast(), marker: PhantomData }
     }
 
-    pub(in crate::core) unsafe fn from_ptr(ptr: *const SymbolCell) -> Self {
+    pub unsafe fn from_ptr(ptr: *const SymbolCell) -> Self {
         let ptr = ptr.map_addr(|x| (x.wrapping_sub(BUILTIN_SYMBOLS.as_ptr().addr())));
         Self { data: ptr, marker: PhantomData }
     }
 
-    pub(super) const fn new_builtin(idx: usize) -> Self {
+    pub const fn new_builtin(idx: usize) -> Self {
         let ptr = sptr::invalid(idx * std::mem::size_of::<SymbolCell>());
         Self { data: ptr, marker: PhantomData }
     }
 
-    pub(super) fn new_runtime(sym: &SymbolCell) -> Self {
+    pub fn new_runtime(sym: &SymbolCell) -> Self {
         unsafe { Self::from_ptr(sym) }
     }
 
-    pub(crate) fn make_special(self) {
+    pub fn make_special(self) {
         self.special.store(true, Ordering::Release);
     }
 
-    pub(crate) fn is_special(self) -> bool {
+    pub fn is_special(self) -> bool {
         self.special.load(Ordering::Acquire)
     }
 }
@@ -145,10 +145,7 @@ impl Hash for Symbol<'_> {
 }
 
 impl<'old, 'new> Symbol<'old> {
-    pub(in crate::core) fn clone_in<const C: bool>(
-        self,
-        bk: &'new crate::core::gc::Block<C>,
-    ) -> Gc<Symbol<'new>> {
+    pub fn clone_in<const C: bool>(self, bk: &'new crate::gc::Block<C>) -> Gc<Symbol<'new>> {
         if let SymbolName::Uninterned(name) = &self.name {
             match bk.uninterned_symbol_map.get(self) {
                 Some(new) => new.tag(),
@@ -189,32 +186,32 @@ impl Hash for SymbolCell {
 impl SymbolCell {
     const NULL: *mut u8 = std::ptr::null_mut();
     #[allow(clippy::declare_interior_mutable_const)]
-    const EMTPTY: AtomicPtr<u8> = AtomicPtr::new(Self::NULL);
+    const EMPTY: AtomicPtr<u8> = AtomicPtr::new(Self::NULL);
 
-    pub(super) const fn new(name: &'static str) -> Self {
+    pub const fn new(name: &'static str) -> Self {
         // We have to do this workaround because starts_with is not const
         if name.as_bytes()[0] == b':' {
             Self::new_const(name)
         } else {
             Self {
                 name: SymbolName::Interned(name),
-                func: Some(Self::EMTPTY),
+                func: Some(Self::EMPTY),
                 marked: AtomicBool::new(true),
                 special: AtomicBool::new(false),
             }
         }
     }
 
-    pub(super) const fn new_special(name: &'static str) -> Self {
+    pub const fn new_special(name: &'static str) -> Self {
         Self {
             name: SymbolName::Interned(name),
-            func: Some(Self::EMTPTY),
+            func: Some(Self::EMPTY),
             marked: AtomicBool::new(true),
             special: AtomicBool::new(true),
         }
     }
 
-    pub(super) const fn new_const(name: &'static str) -> Self {
+    pub const fn new_const(name: &'static str) -> Self {
         Self {
             name: SymbolName::Interned(name),
             func: None,
@@ -223,33 +220,33 @@ impl SymbolCell {
         }
     }
 
-    pub(crate) fn new_uninterned(name: &str) -> Self {
+    pub fn new_uninterned(name: &str) -> Self {
         Self {
             name: SymbolName::Uninterned(name.to_owned().into_boxed_str()),
-            func: Some(Self::EMTPTY),
+            func: Some(Self::EMPTY),
             marked: AtomicBool::new(false),
             special: AtomicBool::new(false),
         }
     }
 
-    pub(crate) fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         match &self.name {
             SymbolName::Interned(x) => x,
             SymbolName::Uninterned(x) => x,
         }
     }
 
-    pub(crate) const fn interned(&self) -> bool {
+    pub const fn interned(&self) -> bool {
         matches!(self.name, SymbolName::Interned(_))
     }
 
     #[inline(always)]
     /// Check if the symbol is constant like nil, t, or :keyword
-    pub(crate) const fn is_const(&self) -> bool {
+    pub const fn is_const(&self) -> bool {
         self.func.is_none()
     }
 
-    pub(crate) fn has_func(&self) -> bool {
+    pub fn has_func(&self) -> bool {
         match &self.func {
             Some(func) => !func.load(Ordering::Acquire).is_null(),
             None => false,
@@ -268,12 +265,12 @@ impl SymbolCell {
         None
     }
 
-    pub(crate) fn func<'a>(&self, _cx: &'a Context) -> Option<Gc<Function<'a>>> {
+    pub fn func<'a>(&self, _cx: &'a Context) -> Option<Gc<Function<'a>>> {
         self.get().map(|x| unsafe { x.with_lifetime() })
     }
 
     /// Follow the chain of symbols to find the function at the end, if any.
-    pub(crate) fn follow_indirect<'ob>(&self, cx: &'ob Context) -> Option<Gc<Function<'ob>>> {
+    pub fn follow_indirect<'ob>(&self, cx: &'ob Context) -> Option<Gc<Function<'ob>>> {
         let func = self.func(cx)?;
         match func.untag() {
             Function::Symbol(sym) => sym.follow_indirect(cx),
@@ -286,7 +283,7 @@ impl SymbolCell {
     /// 1. Has marked the entire function as read only
     /// 2. Has cloned the function into the `SymbolMap` block
     /// 3. Ensured the symbol is not constant
-    pub(super) unsafe fn set_func(&self, func: Gc<Function>) -> Result<()> {
+    pub unsafe fn set_func(&self, func: Gc<Function>) -> Result<()> {
         let Some(fn_cell) = self.func.as_ref() else {
             bail!("Attempt to set a constant symbol: {self}")
         };
@@ -295,7 +292,7 @@ impl SymbolCell {
         Ok(())
     }
 
-    pub(crate) fn unbind_func(&self) {
+    pub fn unbind_func(&self) {
         if let Some(func) = &self.func {
             func.store(Self::NULL, Ordering::Release);
         }
@@ -303,7 +300,7 @@ impl SymbolCell {
 }
 
 impl GcManaged for SymbolCell {
-    fn get_mark(&self) -> &crate::core::gc::GcMark {
+    fn get_mark(&self) -> &crate::gc::GcMark {
         panic!("Symbol does not use GcMark")
     }
 
@@ -355,7 +352,7 @@ impl fmt::Debug for SymbolCell {
 /// When copying uninterned symbols, we need to ensure that all instances share
 /// the same address if they did originally. This keeps a mapping from old
 /// symbols to new.
-pub(in crate::core) struct UninternedSymbolMap {
+pub struct UninternedSymbolMap {
     map: std::cell::RefCell<Vec<(Symbol<'static>, Symbol<'static>)>>,
 }
 
@@ -370,7 +367,7 @@ impl UninternedSymbolMap {
             .push(unsafe { (old.with_lifetime(), new.with_lifetime()) });
     }
 
-    pub(in crate::core::env) fn clear(&self) {
+    pub(in crate::env) fn clear(&self) {
         self.map.borrow_mut().clear();
     }
 }

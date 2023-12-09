@@ -6,7 +6,7 @@ use super::Cons;
 use anyhow::Result;
 
 #[derive(Clone)]
-pub(crate) struct ConsIter<'ob> {
+pub struct ConsIter<'ob> {
     cons: Option<Result<&'ob Cons, ConsError>>,
     fast: Option<&'ob Cons>,
 }
@@ -18,7 +18,7 @@ impl<'ob> ConsIter<'ob> {
         Self { cons: cons.map(Ok), fast: cons }
     }
 
-    pub(crate) fn fallible(self) -> fallible_iterator::Convert<Self> {
+    pub fn fallible(self) -> fallible_iterator::Convert<Self> {
         fallible_iterator::convert(self)
     }
 }
@@ -58,15 +58,15 @@ fn advance(cons: Option<&Cons>) -> Option<&Cons> {
 /// An iterator over the elements (car's) of a list. This iterator will detect circular
 /// lists and non-nil list terminators.
 #[derive(Clone)]
-pub(crate) struct ElemIter<'ob>(ConsIter<'ob>);
+pub struct ElemIter<'ob>(ConsIter<'ob>);
 
 impl ElemIter<'_> {
-    pub(crate) fn len(&self) -> Result<usize, ConsError> {
+    pub fn len(&self) -> Result<usize, ConsError> {
         use fallible_iterator::FallibleIterator;
         self.clone().fallible().count()
     }
 
-    pub(crate) fn fallible(self) -> fallible_iterator::Convert<Self> {
+    pub fn fallible(self) -> fallible_iterator::Convert<Self> {
         fallible_iterator::convert(self)
     }
 }
@@ -80,7 +80,7 @@ impl<'ob> Iterator for ElemIter<'ob> {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub(crate) enum ConsError {
+pub enum ConsError {
     NonNilCdr,
     CircularList,
 }
@@ -96,13 +96,13 @@ impl std::fmt::Display for ConsError {
 
 impl std::error::Error for ConsError {}
 
-pub(crate) struct ElemStreamIter<'rt> {
+pub struct ElemStreamIter<'rt> {
     elem: Option<&'rt mut Rt<GcObj<'static>>>,
     cons: Option<Result<&'rt mut Rt<&'static Cons>, ConsError>>,
 }
 
 impl<'rt> ElemStreamIter<'rt> {
-    pub(crate) fn new(
+    pub fn new(
         elem: Option<&'rt mut Rt<GcObj<'static>>>,
         cons: Option<&'rt mut Rt<&'static Cons>>,
     ) -> Self {
@@ -144,49 +144,18 @@ impl<'rt> fallible_streaming_iterator::FallibleStreamingIterator for ElemStreamI
 }
 
 impl<'rt> ElemStreamIter<'rt> {
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.cons.is_none()
     }
 }
 
-#[macro_export]
-macro_rules! rooted_iter {
-    ($ident:ident, $value:expr, $cx:ident) => {
-        // Create roots, but don't initialize them
-        let mut elem;
-        let mut cons;
-        let mut root_elem;
-        let mut root_cons;
-        // use match to ensure that $value is not evaled inside the unsafe block
-        let list: $crate::core::object::Gc<$crate::core::object::List> = match $value {
-            // Convert the value into a list
-            value => unsafe { $crate::core::gc::IntoRoot::into_root(value).try_into()? },
-        };
-        #[allow(unused_qualifications, unused_mut)]
-        let mut $ident = if let $crate::core::object::List::Cons(head) = list.untag() {
-            use $crate::core::{cons, gc, object};
-            // If the list is not empty, then initialize the roots and put them
-            // in the stack space reserved
-            unsafe {
-                elem = object::nil();
-                cons = object::WithLifetime::with_lifetime(head);
-                root_elem = gc::__StackRoot::new(&mut elem, $cx.get_root_set());
-                root_cons = gc::__StackRoot::new(&mut cons, $cx.get_root_set());
-                cons::ElemStreamIter::new(Some(root_elem.as_mut()), Some(root_cons.as_mut()))
-            }
-        } else {
-            $crate::core::cons::ElemStreamIter::new(None, None)
-        };
-    };
-}
-
 #[allow(clippy::multiple_inherent_impl)]
 impl Cons {
-    pub(crate) fn elements(&self) -> ElemIter {
+    pub fn elements(&self) -> ElemIter {
         ElemIter(self.conses())
     }
 
-    pub(crate) fn conses(&self) -> ConsIter {
+    pub fn conses(&self) -> ConsIter {
         ConsIter::new(Some(self))
     }
 }
@@ -202,11 +171,11 @@ impl<'ob> IntoIterator for &'ob Cons {
 }
 
 impl<'ob> Gc<List<'ob>> {
-    pub(crate) fn elements(self) -> ElemIter<'ob> {
+    pub fn elements(self) -> ElemIter<'ob> {
         ElemIter(self.conses())
     }
 
-    pub(crate) fn conses(self) -> ConsIter<'ob> {
+    pub fn conses(self) -> ConsIter<'ob> {
         match self.untag() {
             List::Nil => ConsIter::new(None),
             List::Cons(cons) => ConsIter::new(Some(cons)),
@@ -225,7 +194,7 @@ impl<'ob> IntoIterator for Gc<List<'ob>> {
 }
 
 impl<'ob> GcObj<'ob> {
-    pub(crate) fn as_list(self) -> Result<ElemIter<'ob>> {
+    pub fn as_list(self) -> Result<ElemIter<'ob>> {
         let list: Gc<List> = self.try_into()?;
         Ok(list.elements())
     }
@@ -236,8 +205,8 @@ mod test {
     use fallible_iterator::FallibleIterator;
     use fallible_streaming_iterator::FallibleStreamingIterator;
 
-    use super::super::super::gc::{Context, RootSet};
-    use crate::list;
+    use crate::gc::{Context, RootSet};
+    use crate::macros::{list, rooted_iter};
 
     use super::*;
 
