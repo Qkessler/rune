@@ -1,4 +1,4 @@
-name: Build and Deploy to Netlify
+name: build and deploy to netlify
 on:
   push:
     branches: [docs]
@@ -19,10 +19,7 @@ jobs:
       - name: cargo doc
         run: cargo +nightly doc --no-deps --all-features
         env:
-          RUSTDOCFLAGS: -D warnings \
-            --force-warn rustdoc::redundant-explicit-links \
-            --force-warn renamed-and-removed-lints \
-            --cfg docsrs
+          RUSTDOCFLAGS: -D warnings
       - name: Deploy to Netlify
         uses: nwtgck/actions-netlify@v2.0
         with:
