@@ -3,7 +3,7 @@ on:
   push:
     branches: [docs]
 jobs:
-  build:
+  publish-docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +17,7 @@ jobs:
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: cargo doc
-        run: cargo +nightly doc --no-deps --all-features
+        run: cargo +nightly doc --no-deps --all-features --workspace
         env:
           RUSTDOCFLAGS: -D warnings
       - name: Deploy to Netlify
