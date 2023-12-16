@@ -19,8 +19,7 @@ jobs:
       - name: cargo doc
         run: cargo +nightly doc --no-deps --all-features
         env:
-          RUSTDOCFLAGS: |
-            -D warnings \
+          RUSTDOCFLAGS: -D warnings \
             --force-warn rustdoc::redundant-explicit-links \
             --force-warn renamed-and-removed-lints \
             --cfg docsrs
