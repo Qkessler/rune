@@ -1,7 +1,7 @@
 [build]
   command = """
     rustup install nightly --profile minimal \
-    && sudo apt-get -y install libpango1.0-dev libgtk-3-dev \
+    && apt-get -y install libpango1.0-dev libgtk-3-dev \
     && cargo doc --no-deps --all-features
     """
   publish = "target/doc"
